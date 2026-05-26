@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install Linux deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Read pinned findr version
+        id: ver
+        shell: bash
+        run: echo "version=$(cat findr_version.txt | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+
+      - name: Fetch findr binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries
+          V=${{ steps.ver.outputs.version }}
+          gh release download "$V" --repo Roderick111/findr \
+            -p "findr-macos-arm64" -p "findr-macos-x86_64" \
+            -p "findr-linux-x86_64" -p "findr-windows-x86_64.exe" \
+            -p "findr-ocr-macos-arm64" -p "findr-ocr-macos-x86_64" \
+            -D /tmp/findr-bins || true
+          # macOS
+          [ -f /tmp/findr-bins/findr-macos-arm64 ] && cp /tmp/findr-bins/findr-macos-arm64 src-tauri/binaries/findr-aarch64-apple-darwin
+          [ -f /tmp/findr-bins/findr-macos-x86_64 ] && cp /tmp/findr-bins/findr-macos-x86_64 src-tauri/binaries/findr-x86_64-apple-darwin
+          [ -f /tmp/findr-bins/findr-ocr-macos-arm64 ] && cp /tmp/findr-bins/findr-ocr-macos-arm64 src-tauri/binaries/findr-ocr-aarch64-apple-darwin
+          [ -f /tmp/findr-bins/findr-ocr-macos-x86_64 ] && cp /tmp/findr-bins/findr-ocr-macos-x86_64 src-tauri/binaries/findr-ocr-x86_64-apple-darwin
+          # Linux
+          [ -f /tmp/findr-bins/findr-linux-x86_64 ] && cp /tmp/findr-bins/findr-linux-x86_64 src-tauri/binaries/findr-x86_64-unknown-linux-gnu
+          # Windows
+          [ -f /tmp/findr-bins/findr-windows-x86_64.exe ] && cp /tmp/findr-bins/findr-windows-x86_64.exe src-tauri/binaries/findr-x86_64-pc-windows-msvc.exe
+          chmod +x src-tauri/binaries/* 2>/dev/null || true
+
+      - name: Install frontend deps
+        run: bun install
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "findr Desktop v__VERSION__"
+          releaseBody: "Bundles findr CLI ${{ steps.ver.outputs.version }}."
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}

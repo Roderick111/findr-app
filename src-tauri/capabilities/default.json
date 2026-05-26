@@ -1,0 +1,91 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main overlay window — search sidecar, preview, hotkey, actions",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-center",
+    "core:window:allow-close",
+    "core:app:allow-version",
+    "shell:allow-open",
+    "opener:default",
+    "opener:allow-reveal-item-in-dir",
+    "clipboard-manager:allow-write-text",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "store:allow-load",
+    "updater:default",
+    "process:allow-restart",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "**" }]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/findr",
+          "sidecar": true,
+          "args": [
+            "search",
+            { "validator": "\\S+" },
+            "--json",
+            "--limit",
+            { "validator": "\\d+" },
+            "--no-semantic"
+          ]
+        },
+        {
+          "name": "binaries/findr",
+          "sidecar": true,
+          "args": [
+            "search",
+            { "validator": "\\S+" },
+            "--json",
+            "--limit",
+            { "validator": "\\d+" }
+          ]
+        },
+        {
+          "name": "binaries/findr",
+          "sidecar": true,
+          "args": [
+            "search",
+            "",
+            "--json",
+            "--limit",
+            { "validator": "\\d+" }
+          ]
+        },
+        {
+          "name": "binaries/findr",
+          "sidecar": true,
+          "args": ["index", "status", "--json"]
+        },
+        {
+          "name": "binaries/findr",
+          "sidecar": true,
+          "args": ["--version"]
+        },
+        {
+          "name": "binaries/findr",
+          "sidecar": true,
+          "args": [
+            "track",
+            { "validator": "\\S+" },
+            "--action",
+            { "validator": "(open|finder|copy|preview)" }
+          ]
+        }
+      ]
+    }
+  ]
+}
