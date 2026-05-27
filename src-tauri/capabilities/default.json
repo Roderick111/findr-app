@@ -139,7 +139,7 @@
         {
           "name": "binaries/findr",
           "sidecar": true,
-          "args": ["config", "set-key", "--from-env"]
+          "args": ["config", "set-key", { "validator": ".+" }]
         },
         {
           "name": "binaries/findr",

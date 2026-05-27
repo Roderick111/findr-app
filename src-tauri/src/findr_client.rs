@@ -202,15 +202,8 @@ pub async fn sync(app: &AppHandle) -> Result<String, String> {
     run_findr(app, &["index", "sync"], &[]).await
 }
 
-/// Pass the API key via environment variable instead of CLI argument
-/// to avoid exposure in process listings (`ps`).
 pub async fn set_key(app: &AppHandle, key: &str) -> Result<String, String> {
-    run_findr(
-        app,
-        &["config", "set-key", "--from-env"],
-        &[("OPENROUTER_API_KEY", key)],
-    )
-    .await
+    run_findr(app, &["config", "set-key", key], &[]).await
 }
 
 pub async fn get_key_status(app: &AppHandle) -> Result<String, String> {
