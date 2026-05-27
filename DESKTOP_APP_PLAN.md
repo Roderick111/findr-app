@@ -155,7 +155,7 @@ GitHub Actions workflow (`.github/workflows/release.yml`):
 
 ### Desktop
 - [ ] Add `--wait 3` to mutating sidecar calls (add_path, rebuild, sync) for lock contention edge cases
-- [ ] Sentry integration (SDK added but not initialized)
+- [x] Sentry crash reporting (tauri-plugin-sentry, errors forwarded via IPC to Rust client, shipped 2026-05-27)
 - [ ] Customizable hotkey (UI placeholder exists)
 - [ ] Better error UX when sidecar binary missing or crashes
 - [ ] Windows/Linux testing (NSPanel is macOS-only, fallback exists but untested)

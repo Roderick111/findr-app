@@ -12,6 +12,7 @@ Native desktop app for [findr](https://github.com/Roderick111/findr-app) — fas
 - **Light/dark/system themes** — synced across search and settings windows
 - **Auto-updater** — checks GitHub releases, downloads and installs in-app
 - **License gating** — Polar.sh activation with 14-day trial
+- **Crash reporting** — Sentry via `tauri-plugin-sentry` (JS errors forwarded to Rust client via IPC)
 
 ## Keyboard Shortcuts
 

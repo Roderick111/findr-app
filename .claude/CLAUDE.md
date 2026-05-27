@@ -34,6 +34,10 @@ Uses `prevent_close` + `hide()` at the builder level (`on_window_event` in `lib.
 
 Stored in plugin-store. Cross-window sync via `app.emit("theme-changed", &theme)`. Do not poll on focus — causes visible flash.
 
+## Sentry
+
+Crash reporting via `tauri-plugin-sentry`. Rust side: `sentry::init()` in `main.rs` captures panics + native minidumps. JS side: plugin injects its own SDK that forwards webview errors to Rust via IPC — **do not** add a separate `@sentry/react` `Sentry.init()` or `@sentry/vite-plugin`, they conflict with the plugin's IPC transport. Source maps uploaded via `sentry-cli` in CI, not vite plugin.
+
 ## Testing Changes
 
 After modifying Rust code, `cargo build` from `src-tauri/`. After modifying React code, HMR picks it up automatically. Config changes (`tauri.conf.json`, `capabilities/`) require full restart.
