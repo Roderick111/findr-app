@@ -42,10 +42,63 @@ export function Settings() {
   }, []);
 
   useEffect(() => {
-    loadReport();
-    const interval = setInterval(loadReport, 2000);
-    return () => clearInterval(interval);
-  }, [loadReport]);
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let consecutiveFailures = 0;
+    const MAX_FAILURES = 3;
+    const POLL_INTERVAL = 30_000;
+
+    const poll = async () => {
+      try {
+        const r = await invoke<DoctorReport>("get_doctor_report");
+        setReport(r);
+        setError(null);
+        consecutiveFailures = 0;
+      } catch (e) {
+        setError(String(e));
+        consecutiveFailures++;
+        if (consecutiveFailures >= MAX_FAILURES && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const startPolling = () => {
+      if (intervalId) return;
+      consecutiveFailures = 0;
+      intervalId = setInterval(poll, POLL_INTERVAL);
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        poll();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    // Initial load + start polling only if visible
+    poll();
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
 
   useEffect(() => {
     const unlisten = listen<string>("index-sync", (event) => {
@@ -120,25 +173,28 @@ function ScanPathsSection({
   onRefresh: () => void;
 }) {
   const [removing, setRemoving] = useState<string | null>(null);
+  const [sectionError, setSectionError] = useState<string | null>(null);
 
   const handleAddPath = async () => {
+    setSectionError(null);
     const selected = await open({ directory: true, multiple: false });
     if (!selected) return;
     try {
       await invoke("add_scan_path", { path: selected });
       onRefresh();
     } catch (e) {
-      alert(`Failed to add path: ${e}`);
+      setSectionError(`Failed to add path: ${e}`);
     }
   };
 
   const handleRemovePath = async (path: string) => {
+    setSectionError(null);
     setRemoving(path);
     try {
       await invoke("remove_scan_path", { path });
       onRefresh();
     } catch (e) {
-      alert(`Failed to remove path: ${e}`);
+      setSectionError(`Failed to remove path: ${e}`);
     } finally {
       setRemoving(null);
     }
@@ -185,6 +241,7 @@ function ScanPathsSection({
       >
         <Plus size={12} /> Add folder
       </button>
+      {sectionError && <p className="error-message">{sectionError}</p>}
     </Section>
   );
 }
@@ -225,7 +282,9 @@ function ThemeSection() {
 
 function SearchHotkeySection() {
   const isMac =
-    typeof navigator !== "undefined" && navigator.platform.includes("Mac");
+    typeof navigator !== "undefined" &&
+    ((navigator as any).userAgentData?.platform?.includes("Mac") ??
+      navigator.platform.includes("Mac"));
   return (
     <Section
       icon={<Keyboard size={16} style={{ color: "var(--warning)" }} />}
@@ -253,6 +312,7 @@ function SearchHotkeySection() {
 function LaunchAtLoginSection() {
   const [enabled, setEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<boolean>("get_autostart_status")
@@ -264,12 +324,13 @@ function LaunchAtLoginSection() {
   }, []);
 
   const toggle = async () => {
+    setSectionError(null);
     const next = !enabled;
     try {
       await invoke("set_autostart", { enabled: next });
       setEnabled(next);
     } catch (e) {
-      alert(`Failed to set autostart: ${e}`);
+      setSectionError(`Failed to set autostart: ${e}`);
     }
   };
 
@@ -290,6 +351,7 @@ function LaunchAtLoginSection() {
           style={{ left: enabled ? "22px" : "2px" }}
         />
       </button>
+      {sectionError && <p className="error-message">{sectionError}</p>}
     </Section>
   );
 }
@@ -299,6 +361,7 @@ function SemanticSearchSection() {
   const [keyInput, setKeyInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<string>("get_api_key_status")
@@ -309,6 +372,7 @@ function SemanticSearchSection() {
   const handleSave = async () => {
     if (!keyInput.trim()) return;
     setSaving(true);
+    setSectionError(null);
     try {
       await invoke("set_api_key", { key: keyInput.trim() });
       setStatus("configured");
@@ -316,7 +380,7 @@ function SemanticSearchSection() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
-      alert(`Failed to save key: ${e}`);
+      setSectionError(`Failed to save key: ${e}`);
     } finally {
       setSaving(false);
     }
@@ -366,6 +430,7 @@ function SemanticSearchSection() {
         >
           Get an API key at openrouter.ai
         </a>
+        {sectionError && <p className="error-message">{sectionError}</p>}
       </div>
     </Section>
   );
@@ -430,6 +495,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 function ReindexSection({ onRefresh }: { onRefresh: () => void }) {
   const [running, setRunning] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
 
   const handleReindex = async () => {
     if (!confirmed) {
@@ -438,11 +504,12 @@ function ReindexSection({ onRefresh }: { onRefresh: () => void }) {
     }
     setRunning(true);
     setConfirmed(false);
+    setSectionError(null);
     try {
       await invoke("run_reindex");
       onRefresh();
     } catch (e) {
-      alert(`Reindex failed: ${e}`);
+      setSectionError(`Reindex failed: ${e}`);
     } finally {
       setRunning(false);
     }
@@ -479,6 +546,7 @@ function ReindexSection({ onRefresh }: { onRefresh: () => void }) {
       <p className="mt-1.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
         Deletes and rebuilds the entire index. May take several minutes.
       </p>
+      {sectionError && <p className="error-message">{sectionError}</p>}
     </Section>
   );
 }

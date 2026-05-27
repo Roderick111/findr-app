@@ -22,8 +22,10 @@ export function LicenseGate({ children }: Props) {
         const days = await invoke<number>("get_trial_days_remaining");
         setTrialDays(days);
       }
-    } catch {
+    } catch (e) {
+      console.error("License check failed:", e);
       setStatus("unknown");
+      setError("Unable to verify license. Please restart the app.");
     } finally {
       setLoading(false);
     }
@@ -69,14 +71,42 @@ export function LicenseGate({ children }: Props) {
     );
   }
 
-  if (status === "active" || status === "unknown") return <>{children}</>;
+  if (status === "active") return <>{children}</>;
 
   if (status === "trial") {
     return (
       <>
-        <TrialBanner days={trialDays} onActivate={() => setStatus("unknown")} />
+        <TrialBanner days={trialDays} onActivate={() => setStatus(null)} />
         {children}
       </>
+    );
+  }
+
+  if (status === "unknown") {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center gap-4 overlay-root">
+        <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+          Checking license...
+        </span>
+        {error && (
+          <p className="text-xs text-center max-w-[300px]" style={{ color: "var(--error)" }}>{error}</p>
+        )}
+        <button
+          onClick={() => {
+            setLoading(true);
+            setError(null);
+            checkLicense();
+          }}
+          className="text-xs px-3 py-1.5 rounded transition-colors"
+          style={{
+            background: "var(--bg-hover)",
+            border: "1px solid var(--border)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          Retry
+        </button>
+      </div>
     );
   }
 

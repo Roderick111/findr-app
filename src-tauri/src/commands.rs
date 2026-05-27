@@ -1,5 +1,6 @@
+use crate::background::SyncLock;
 use crate::findr_client::{self, DoctorReport, IndexStatus, SearchResponse};
-use crate::license::{self, LicenseState, LicenseStatus};
+use crate::license::{self, LicenseState, LicenseStatus, ValidationCacheState};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::AutoLaunchManager;
 use tauri_plugin_store::StoreExt;
@@ -52,7 +53,9 @@ pub fn hide_overlay(app: AppHandle) {
         }
     }
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
+        if let Err(e) = window.hide() {
+            eprintln!("[commands] failed to hide main window: {e}");
+        }
     }
 }
 
@@ -84,12 +87,34 @@ pub async fn remove_scan_path(app: AppHandle, path: String) -> Result<String, St
 
 #[tauri::command]
 pub async fn run_reindex(app: AppHandle) -> Result<String, String> {
-    findr_client::rebuild(&app, None, None).await
+    // Acquire sync lock to prevent race with daemon
+    let lock = app.try_state::<SyncLock>();
+    if let Some(ref lock) = lock {
+        if !lock.try_acquire() {
+            return Err("sync already in progress".into());
+        }
+    }
+    let result = findr_client::rebuild(&app, None, None).await;
+    if let Some(ref lock) = lock {
+        lock.release();
+    }
+    result
 }
 
 #[tauri::command]
 pub async fn run_sync(app: AppHandle) -> Result<String, String> {
-    findr_client::sync(&app).await
+    // Acquire sync lock to prevent race with daemon
+    let lock = app.try_state::<SyncLock>();
+    if let Some(ref lock) = lock {
+        if !lock.try_acquire() {
+            return Err("sync already in progress".into());
+        }
+    }
+    let result = findr_client::sync(&app).await;
+    if let Some(ref lock) = lock {
+        lock.release();
+    }
+    result
 }
 
 #[tauri::command]
@@ -144,44 +169,67 @@ pub fn move_to_trash(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn open_settings(app: AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.show();
-        let _ = window.set_focus();
+        if let Err(e) = window.show() {
+            eprintln!("[commands] failed to show settings window: {e}");
+        }
+        if let Err(e) = window.set_focus() {
+            eprintln!("[commands] failed to focus settings window: {e}");
+        }
     }
 }
 
 #[tauri::command]
-pub fn get_license_state(app: AppHandle) -> Result<LicenseState, String> {
+pub async fn get_license_state(app: AppHandle) -> Result<LicenseState, String> {
     let store = app.store("settings.json").map_err(|e| e.to_string())?;
     let state: LicenseState = store
         .get("license")
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
-    let checked_status = license::check_license_state(&state);
+
+    // Use cached validation to avoid blocking on every poll
+    let cache = app.try_state::<ValidationCacheState>();
+    let checked_status = match cache {
+        Some(ref c) => {
+            // key is not persisted — pass None. Validation will use activation_id only
+            // if key is needed for validation and unavailable, grace period logic handles it
+            license::check_license_state_cached(&state, c, None)
+        }
+        None => license::check_license_state(&state),
+    };
+
     if checked_status != state.status {
         let mut updated = state.clone();
         updated.status = checked_status.clone();
         if checked_status == LicenseStatus::Active {
             updated.validated_at = Some(chrono::Utc::now().to_rfc3339());
         }
-        store.set("license", serde_json::to_value(&updated).unwrap());
+        let value = serde_json::to_value(&updated).map_err(|e| e.to_string())?;
+        store.set("license", value);
         return Ok(updated);
     }
     Ok(state)
 }
 
 #[tauri::command]
-pub fn activate_license(app: AppHandle, key: String) -> Result<LicenseState, String> {
-    let state = license::activate_license(&key)?;
+pub async fn activate_license(app: AppHandle, key: String) -> Result<LicenseState, String> {
+    // Run blocking HTTP call on a blocking thread
+    let state = tokio::task::spawn_blocking(move || license::activate_license(&key))
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {e}"))??;
+
     let store = app.store("settings.json").map_err(|e| e.to_string())?;
-    store.set("license", serde_json::to_value(&state).unwrap());
+    // key is skip_serializing so it won't be written to disk
+    let value = serde_json::to_value(&state).map_err(|e| e.to_string())?;
+    store.set("license", value);
     Ok(state)
 }
 
 #[tauri::command]
-pub fn start_trial(app: AppHandle) -> Result<LicenseState, String> {
+pub async fn start_trial(app: AppHandle) -> Result<LicenseState, String> {
     let store = app.store("settings.json").map_err(|e| e.to_string())?;
     let state = license::start_trial();
-    store.set("license", serde_json::to_value(&state).unwrap());
+    let value = serde_json::to_value(&state).map_err(|e| e.to_string())?;
+    store.set("license", value);
     Ok(state)
 }
 

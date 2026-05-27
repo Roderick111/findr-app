@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ExternalLink,
   FolderOpen,
@@ -8,6 +8,10 @@ import {
   Trash2,
 } from "lucide-react";
 import type { SearchResult } from "../types";
+
+const isMac = navigator.userAgent.includes("Mac");
+const mod = isMac ? "⌘" : "Ctrl";
+const deleteKey = isMac ? "⌫" : "Del";
 
 interface Action {
   id: string;
@@ -41,7 +45,7 @@ export function ActionsPanel({
   const [selected, setSelected] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const actions: Action[] = [
+  const actions: Action[] = useMemo(() => [
     {
       id: "open",
       label: "Open",
@@ -53,38 +57,38 @@ export function ActionsPanel({
       id: "reveal",
       label: "Reveal in Finder",
       icon: <FolderOpen size={14} />,
-      shortcut: ["⌘", "↵"],
+      shortcut: [mod, "↵"],
       handler: onReveal,
     },
     {
       id: "copy-path",
       label: "Copy Path",
       icon: <Copy size={14} />,
-      shortcut: ["⌘", "C"],
+      shortcut: [mod, "C"],
       handler: onCopyPath,
     },
     {
       id: "copy-name",
       label: "Copy Filename",
       icon: <FileText size={14} />,
-      shortcut: ["⌘", "⇧", "C"],
+      shortcut: [mod, "⇧", "C"],
       handler: onCopyFilename,
     },
     {
       id: "trash",
       label: "Move to Trash",
       icon: <Trash2 size={14} />,
-      shortcut: ["⌘", "⌫"],
+      shortcut: [mod, deleteKey],
       handler: onTrash,
     },
     {
       id: "settings",
       label: "Settings",
       icon: <Settings size={14} />,
-      shortcut: ["⌘", ","],
+      shortcut: [mod, ","],
       handler: onSettings,
     },
-  ];
+  ], [onOpen, onReveal, onCopyPath, onCopyFilename, onTrash, onSettings]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

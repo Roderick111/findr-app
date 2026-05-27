@@ -6,24 +6,32 @@ export function UpdateBanner() {
   const [version, setVersion] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     check()
       .then((update) => {
         if (update) setVersion(update.version);
       })
-      .catch(() => {});
+      .catch((e) => {
+        console.error("Update check failed:", e);
+      });
   }, []);
 
   const handleUpdate = useCallback(async () => {
     setInstalling(true);
+    setError(null);
     try {
       const update = await check();
       if (update) {
         await update.downloadAndInstall();
         await relaunch();
+      } else {
+        setInstalling(false);
       }
-    } catch {
+    } catch (e) {
+      console.error("Update install failed:", e);
+      setError("Update failed");
       setInstalling(false);
     }
   }, []);
@@ -39,14 +47,14 @@ export function UpdateBanner() {
         borderBottom: "1px solid var(--border)",
       }}
     >
-      <span>Update available: v{version}</span>
+      <span>{error ? error : `Update available: v${version}`}</span>
       <div className="flex gap-3">
         <button
           onClick={handleUpdate}
           disabled={installing}
           className="font-medium opacity-90 hover:opacity-100"
         >
-          {installing ? "Installing..." : "Update now"}
+          {installing ? "Installing..." : error ? "Retry" : "Update now"}
         </button>
         <button
           onClick={() => setDismissed(true)}

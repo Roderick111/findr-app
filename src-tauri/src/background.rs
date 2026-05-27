@@ -1,37 +1,160 @@
-use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
 
 const SYNC_INTERVAL: Duration = Duration::from_secs(300);
+const SIDECAR_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_BACKOFF: Duration = Duration::from_secs(600); // 10 minutes
+const SHUTDOWN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 
-pub fn spawn_index_daemon(app: AppHandle) {
+/// Shared lock to prevent daemon and user-triggered sync from racing.
+/// Stored in Tauri managed state.
+pub struct SyncLock(pub AtomicBool);
+
+impl Default for SyncLock {
+    fn default() -> Self {
+        Self(AtomicBool::new(false))
+    }
+}
+
+impl SyncLock {
+    /// Try to acquire the lock. Returns true if acquired.
+    pub fn try_acquire(&self) -> bool {
+        self.0
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    /// Release the lock.
+    pub fn release(&self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Spawn the background index daemon. Returns a shutdown flag that can be
+/// set to `true` to cleanly stop the daemon thread.
+pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_clone = shutdown.clone();
+
     std::thread::spawn(move || {
         let rt = tauri::async_runtime::handle();
 
-        if let Ok(status) = rt.block_on(crate::findr_client::index_status(&app)) {
-            if status.files_indexed.unwrap_or(0) == 0 {
-                let _ = app.emit("index-progress", "Starting initial sync...");
-                let _ = rt.block_on(crate::findr_client::sync(&app));
-                let _ = app.emit("index-progress", "Initial sync complete");
+        // Initial sync with timeout — don't block indefinitely on first launch
+        if !shutdown_clone.load(Ordering::SeqCst) {
+            match rt.block_on(async {
+                tokio::time::timeout(
+                    SIDECAR_TIMEOUT,
+                    crate::findr_client::index_status(&app),
+                )
+                .await
+            }) {
+                Ok(Ok(status)) => {
+                    if status.files_indexed.unwrap_or(0) == 0 {
+                        let _ = app.emit("index-progress", "Starting initial sync...");
+                        match rt.block_on(async {
+                            tokio::time::timeout(SIDECAR_TIMEOUT, crate::findr_client::sync(&app))
+                                .await
+                        }) {
+                            Ok(Ok(_)) => {
+                                let _ = app.emit("index-progress", "Initial sync complete");
+                            }
+                            Ok(Err(e)) => {
+                                eprintln!("[daemon] initial sync failed: {e}");
+                                let _ = app.emit("index-progress", format!("Initial sync error: {e}"));
+                            }
+                            Err(_) => {
+                                eprintln!("[daemon] initial sync timed out after {:?}", SIDECAR_TIMEOUT);
+                                let _ = app.emit("index-progress", "Initial sync timed out");
+                            }
+                        }
+                    }
+                }
+                Ok(Err(e)) => {
+                    eprintln!("[daemon] index status check failed: {e}");
+                }
+                Err(_) => {
+                    eprintln!("[daemon] index status timed out after {:?}", SIDECAR_TIMEOUT);
+                }
             }
         }
 
-        let mut last_sync = Instant::now();
+        let mut consecutive_failures: u32 = 0;
 
         loop {
-            std::thread::sleep(Duration::from_secs(5));
+            // Sleep for full interval, checking shutdown flag periodically
+            let sleep_duration = if consecutive_failures > 0 {
+                // Exponential backoff: 300s * 2^failures, capped at MAX_BACKOFF
+                let multiplier = 1u64.checked_shl(consecutive_failures).unwrap_or(u64::MAX);
+                let backoff_secs = SYNC_INTERVAL.as_secs().saturating_mul(multiplier);
+                Duration::from_secs(backoff_secs).min(MAX_BACKOFF)
+            } else {
+                SYNC_INTERVAL
+            };
 
-            if last_sync.elapsed() >= SYNC_INTERVAL {
-                let _ = app.emit("index-sync", "syncing");
-                match rt.block_on(crate::findr_client::sync(&app)) {
-                    Ok(_) => {
-                        let _ = app.emit("index-sync", "complete");
-                    }
-                    Err(e) => {
-                        let _ = app.emit("index-sync", format!("error: {}", e));
-                    }
+            // Interruptible sleep: check shutdown flag every SHUTDOWN_CHECK_INTERVAL
+            let mut slept = Duration::ZERO;
+            while slept < sleep_duration {
+                if shutdown_clone.load(Ordering::SeqCst) {
+                    eprintln!("[daemon] shutdown requested, exiting");
+                    return;
                 }
-                last_sync = Instant::now();
+                std::thread::sleep(SHUTDOWN_CHECK_INTERVAL);
+                slept += SHUTDOWN_CHECK_INTERVAL;
+            }
+
+            if shutdown_clone.load(Ordering::SeqCst) {
+                eprintln!("[daemon] shutdown requested, exiting");
+                return;
+            }
+
+            // Try to acquire sync lock — skip cycle if user-triggered sync is running
+            let sync_lock = app.try_state::<SyncLock>();
+            let acquired = match &sync_lock {
+                Some(lock) => lock.try_acquire(),
+                None => true, // no lock in state — proceed anyway
+            };
+
+            if !acquired {
+                eprintln!("[daemon] sync lock held by user operation, skipping cycle");
+                continue;
+            }
+
+            let _ = app.emit("index-sync", "syncing");
+            let result = rt.block_on(async {
+                tokio::time::timeout(SIDECAR_TIMEOUT, crate::findr_client::sync(&app)).await
+            });
+
+            // Release sync lock
+            if let Some(ref lock) = sync_lock {
+                lock.release();
+            }
+
+            match result {
+                Ok(Ok(_)) => {
+                    consecutive_failures = 0;
+                    let _ = app.emit("index-sync", "complete");
+                }
+                Ok(Err(e)) => {
+                    consecutive_failures = consecutive_failures.saturating_add(1);
+                    eprintln!(
+                        "[daemon] sync failed (attempt {}): {e}",
+                        consecutive_failures
+                    );
+                    let _ = app.emit("index-sync", format!("error: {e}"));
+                }
+                Err(_) => {
+                    consecutive_failures = consecutive_failures.saturating_add(1);
+                    eprintln!(
+                        "[daemon] sync timed out after {:?} (attempt {})",
+                        SIDECAR_TIMEOUT, consecutive_failures
+                    );
+                    let _ = app.emit("index-sync", "error: sync timed out");
+                }
             }
         }
     });
+
+    shutdown
 }

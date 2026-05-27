@@ -1,3 +1,6 @@
+// The tauri_panel! macro generates code with `-> ()` that clippy flags.
+#![allow(clippy::unused_unit)]
+
 mod background;
 mod commands;
 mod findr_client;
@@ -31,7 +34,7 @@ tauri_panel! {
 }
 
 pub fn run_with_sentry(client: sentry::ClientInitGuard) {
-    let builder = base_builder().plugin(tauri_plugin_sentry::init(&*client));
+    let builder = base_builder().plugin(tauri_plugin_sentry::init(&client));
     finish_builder(builder);
     drop(client);
 }
@@ -83,6 +86,8 @@ fn base_builder() -> tauri::Builder<tauri::Wry> {
 
 fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
     builder
+        .manage(background::SyncLock::default())
+        .manage(license::ValidationCacheState::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -96,7 +101,9 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
                 let win_clone = window.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
-                        let _ = win_clone.hide();
+                        if let Err(e) = win_clone.hide() {
+                            eprintln!("[lib] failed to hide main window on focus loss: {e}");
+                        }
                     }
                 });
             }
@@ -129,30 +136,46 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
-            let _tray = TrayIconBuilder::with_id("main-tray")
-                .icon(app.default_window_icon().unwrap().clone())
-                .icon_as_template(true)
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => show_overlay(app),
-                    "settings" => show_settings(app),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
+            // Build tray icon — log and continue if it fails
+            let tray_icon = app.default_window_icon().cloned();
+            match tray_icon {
+                Some(icon) => {
+                    match TrayIconBuilder::with_id("main-tray")
+                        .icon(icon)
+                        .icon_as_template(true)
+                        .menu(&menu)
+                        .show_menu_on_left_click(false)
+                        .on_menu_event(|app, event| match event.id.as_ref() {
+                            "show" => show_overlay(app),
+                            "settings" => show_settings(app),
+                            "quit" => app.exit(0),
+                            _ => {}
+                        })
+                        .on_tray_icon_event(|tray, event| {
+                            if let TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            } = event
+                            {
+                                toggle_overlay(tray.app_handle());
+                            }
+                        })
+                        .build(app)
                     {
-                        toggle_overlay(tray.app_handle());
+                        Ok(_tray) => {}
+                        Err(e) => {
+                            eprintln!("[lib] failed to build tray icon: {e}");
+                        }
                     }
-                })
-                .build(app)?;
+                }
+                None => {
+                    eprintln!("[lib] no default window icon available, skipping tray icon");
+                }
+            }
 
-            background::spawn_index_daemon(app.handle().clone());
+            let _shutdown_flag = background::spawn_index_daemon(app.handle().clone());
+            // TODO: store shutdown_flag in managed state if graceful shutdown on exit is needed
 
             Ok(())
         })
@@ -160,7 +183,9 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
             if window.label() == "settings" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = window.hide();
+                    if let Err(e) = window.hide() {
+                        eprintln!("[lib] failed to hide settings window on close: {e}");
+                    }
                 }
             }
         })
@@ -193,12 +218,26 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
         .expect("error while running tauri application");
 }
 
-// ── macOS: NSPanel overlay (works over fullscreen apps) ──
+// -- macOS: NSPanel overlay (works over fullscreen apps) --
 
 #[cfg(target_os = "macos")]
 fn setup_macos_panel(app: &tauri::App) {
-    let window = app.get_webview_window("main").unwrap();
-    let panel = window.to_panel::<FindrPanel>().unwrap();
+    let window = match app.get_webview_window("main") {
+        Some(w) => w,
+        None => {
+            eprintln!("[lib] main window not found, skipping NSPanel setup");
+            return;
+        }
+    };
+
+    let panel = match window.to_panel::<FindrPanel>() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[lib] failed to convert main window to NSPanel: {e}");
+            eprintln!("[lib] falling back to regular window behavior");
+            return;
+        }
+    };
 
     panel.set_level(PanelLevel::Floating.value());
     panel.set_style_mask(StyleMask::empty().nonactivating_panel().into());
@@ -243,19 +282,29 @@ fn toggle_overlay<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
 
 fn show_settings<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("settings") {
-        let _ = window.show();
-        let _ = window.set_focus();
+        if let Err(e) = window.show() {
+            eprintln!("[lib] failed to show settings window: {e}");
+        }
+        if let Err(e) = window.set_focus() {
+            eprintln!("[lib] failed to focus settings window: {e}");
+        }
     }
 }
 
-// ── Non-macOS fallback ──
+// -- Non-macOS fallback --
 
 #[cfg(not(target_os = "macos"))]
 fn show_overlay<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
-        let _ = window.center();
+        if let Err(e) = window.show() {
+            eprintln!("[lib] failed to show main window: {e}");
+        }
+        if let Err(e) = window.set_focus() {
+            eprintln!("[lib] failed to focus main window: {e}");
+        }
+        if let Err(e) = window.center() {
+            eprintln!("[lib] failed to center main window: {e}");
+        }
     }
 }
 
@@ -264,11 +313,17 @@ fn toggle_overlay<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         match window.is_visible() {
             Ok(true) => {
-                let _ = window.hide();
+                if let Err(e) = window.hide() {
+                    eprintln!("[lib] failed to hide main window: {e}");
+                }
             }
             _ => {
-                let _ = window.show();
-                let _ = window.set_focus();
+                if let Err(e) = window.show() {
+                    eprintln!("[lib] failed to show main window: {e}");
+                }
+                if let Err(e) = window.set_focus() {
+                    eprintln!("[lib] failed to focus main window: {e}");
+                }
             }
         }
     }

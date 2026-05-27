@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import { LicenseGate } from "./components/LicenseGate";
 import { Settings } from "./settings/Settings";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ThemeContext, useThemeProvider } from "./hooks/useTheme";
 import "./index.css";
 
@@ -14,13 +15,15 @@ function Root() {
 
   return (
     <ThemeContext.Provider value={themeCtx}>
-      {windowLabel === "settings" ? (
-        <Settings />
-      ) : (
-        <LicenseGate>
-          <App />
-        </LicenseGate>
-      )}
+      <ErrorBoundary>
+        {windowLabel === "settings" ? (
+          <Settings />
+        ) : (
+          <LicenseGate>
+            <App />
+          </LicenseGate>
+        )}
+      </ErrorBoundary>
     </ThemeContext.Provider>
   );
 }

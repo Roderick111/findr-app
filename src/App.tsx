@@ -14,6 +14,9 @@ const LIMIT = 30;
 const RECENT_LIMIT = 20;
 const DEBOUNCE_MS = 200;
 
+const isMac = navigator.userAgent.includes("Mac");
+const modKey = isMac ? "⌘" : "Ctrl+";
+
 function iconFor(r: SearchResult) {
   if (r.is_dir) return <Folder size={16} style={{ color: "var(--icon-folder)" }} className="shrink-0" />;
   const ext = r.file_type?.toLowerCase() ?? "";
@@ -77,45 +80,66 @@ export default function App() {
   }, [trackAction, flashToast, hideOverlay]);
 
   const copyPath = useCallback(async (r: SearchResult) => {
-    await writeText(r.path);
-    trackAction(r.path, "copy");
-    flashToast("Path copied");
+    try {
+      await writeText(r.path);
+      trackAction(r.path, "copy");
+      flashToast("Path copied");
+    } catch (e) {
+      setError(`failed to copy path: ${e}`);
+    }
   }, [trackAction, flashToast]);
 
   const copyFilename = useCallback(async (r: SearchResult) => {
-    await writeText(r.filename);
-    trackAction(r.path, "copy");
-    flashToast("Filename copied");
+    try {
+      await writeText(r.filename);
+      trackAction(r.path, "copy");
+      flashToast("Filename copied");
+    } catch (e) {
+      setError(`failed to copy filename: ${e}`);
+    }
   }, [trackAction, flashToast]);
 
   const moveToTrash = useCallback(async (r: SearchResult) => {
     try {
       await invoke("move_to_trash", { path: r.path });
-      trackAction(r.path, "open");
+      trackAction(r.path, "trash");
       flashToast("Moved to Trash");
-      setResults((prev) => prev.filter((item) => item.path !== r.path));
-      setSelected((s) => Math.min(s, results.length - 2));
+      setResults((prev) => {
+        const next = prev.filter((item) => item.path !== r.path);
+        setSelected((s) => Math.max(0, Math.min(s, next.length - 1)));
+        return next;
+      });
     } catch (e) {
       setError(`failed to trash: ${e}`);
     }
-  }, [trackAction, flashToast, results.length]);
+  }, [trackAction, flashToast]);
 
   const openSettings = useCallback(() => {
     invoke("open_settings").catch(() => {});
   }, []);
 
+  const wasHiddenRef = useRef(false);
+
   useEffect(() => {
     const win = getCurrentWindow();
-    const unlisten = win.onFocusChanged(({ payload: focused }) => {
-      if (focused) {
+    const unlistenFocus = win.onFocusChanged(({ payload: focused }) => {
+      if (focused && wasHiddenRef.current) {
+        // Only clear context when re-shown after being hidden (overlay dismiss)
+        wasHiddenRef.current = false;
         setQuery("");
         setSelected(0);
         setShowActions(false);
+      }
+      if (focused) {
         setTimeout(() => inputRef.current?.focus(), 50);
       }
     });
+    const unlistenVisibility = win.listen("tauri://window-hidden", () => {
+      wasHiddenRef.current = true;
+    });
     return () => {
-      unlisten.then((u) => u());
+      unlistenFocus.then((u) => u());
+      unlistenVisibility.then((u) => u());
     };
   }, []);
 
@@ -191,6 +215,24 @@ export default function App() {
         e.preventDefault();
         copyFilename(r);
       } else if (meta && !e.shiftKey && e.key === "c" && r) {
+        // Let native copy work when text is selected in an input/textarea
+        const activeEl = document.activeElement;
+        if (
+          activeEl instanceof HTMLInputElement &&
+          activeEl.selectionStart !== null &&
+          activeEl.selectionEnd !== null &&
+          activeEl.selectionStart !== activeEl.selectionEnd
+        ) {
+          return;
+        }
+        if (
+          activeEl instanceof HTMLTextAreaElement &&
+          activeEl.selectionStart !== null &&
+          activeEl.selectionEnd !== null &&
+          activeEl.selectionStart !== activeEl.selectionEnd
+        ) {
+          return;
+        }
         const sel = window.getSelection()?.toString();
         if (sel && sel.length > 0) return;
         e.preventDefault();
@@ -249,32 +291,40 @@ export default function App() {
       <div className="flex-1 flex min-h-0">
         <div className="w-[42%] min-w-[280px] flex flex-col" style={{ borderRight: "1px solid var(--border)" }}>
           <div ref={listRef} className="flex-1 overflow-y-auto">
-            {results.map((r, i) => (
-              <div
-                key={`${r.path}-${i}`}
-                data-idx={i}
-                className="px-4 py-2 flex gap-3 items-center cursor-default"
-                style={{
-                  background: i === selected ? "var(--bg-active)" : "transparent",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background =
-                    i === selected ? "var(--bg-active)" : "var(--bg-hover)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background =
-                    i === selected ? "var(--bg-active)" : "transparent";
-                }}
-                onClick={() => setSelected(i)}
-                onDoubleClick={() => openFile(r)}
-              >
-                {iconFor(r)}
-                <div className="flex-1 min-w-0">
-                  <div className="truncate text-sm" style={{ color: "var(--text-primary)" }}>{r.filename}</div>
-                  <div className="truncate text-xs" style={{ color: "var(--text-secondary)" }}>{r.path}</div>
-                </div>
+            {results.length === 0 && !loading ? (
+              <div className="flex items-center justify-center h-full">
+                <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+                  {query.trim().length > 0 ? "No results found" : "Start typing to search"}
+                </span>
               </div>
-            ))}
+            ) : (
+              results.map((r, i) => (
+                <div
+                  key={`${r.path}-${i}`}
+                  data-idx={i}
+                  className="px-4 py-2 flex gap-3 items-center cursor-default"
+                  style={{
+                    background: i === selected ? "var(--bg-active)" : "transparent",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.background =
+                      i === selected ? "var(--bg-active)" : "var(--bg-hover)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.background =
+                      i === selected ? "var(--bg-active)" : "transparent";
+                  }}
+                  onClick={() => setSelected(i)}
+                  onDoubleClick={() => openFile(r)}
+                >
+                  {iconFor(r)}
+                  <div className="flex-1 min-w-0">
+                    <div className="truncate text-sm" style={{ color: "var(--text-primary)" }}>{r.filename}</div>
+                    <div className="truncate text-xs" style={{ color: "var(--text-secondary)" }}>{r.path}</div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -308,7 +358,7 @@ export default function App() {
           </button>
         </div>
         <span style={{ color: "var(--text-secondary)" }}>
-          <Kbd>↵</Kbd> open · <Kbd>⌘K</Kbd> actions
+          <Kbd>↵</Kbd> open · <Kbd>{modKey}K</Kbd> actions
         </span>
       </div>
 

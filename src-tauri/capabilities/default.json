@@ -47,7 +47,7 @@
           "sidecar": true,
           "args": [
             "search",
-            { "validator": "\\S+" },
+            { "validator": ".+" },
             "--json",
             "--limit",
             { "validator": "\\d+" },
@@ -59,7 +59,7 @@
           "sidecar": true,
           "args": [
             "search",
-            { "validator": "\\S+" },
+            { "validator": ".+" },
             "--json",
             "--limit",
             { "validator": "\\d+" }
@@ -93,7 +93,7 @@
             "track",
             { "validator": "\\S+" },
             "--action",
-            { "validator": "(open|finder|copy|preview)" }
+            { "validator": "(open|finder|copy|preview|trash)" }
           ]
         },
         {
@@ -104,7 +104,7 @@
         {
           "name": "binaries/findr",
           "sidecar": true,
-          "args": ["index", "add-path", { "validator": ".+" }]
+          "args": ["index", "add-path", { "validator": "^(/[^\\x00]+|~[^\\x00]*)$" }]
         },
         {
           "name": "binaries/findr",
@@ -139,7 +139,7 @@
         {
           "name": "binaries/findr",
           "sidecar": true,
-          "args": ["config", "set-key", { "validator": ".+" }]
+          "args": ["config", "set-key", "--from-env"]
         },
         {
           "name": "binaries/findr",
