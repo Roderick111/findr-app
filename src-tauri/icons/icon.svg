@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="108" fill="#0f172a"/>
+  <!-- Glass ring - bright cyan -->
+  <circle cx="212" cy="212" r="115" fill="none" stroke="#22d3ee" stroke-width="30"/>
+  <!-- Lens dark fill -->
+  <circle cx="212" cy="212" r="100" fill="#172554"/>
+  <!-- Handle - bright cyan -->
+  <line x1="296" y1="296" x2="404" y2="404" stroke="#22d3ee" stroke-width="38" stroke-linecap="round"/>
+  <!-- Glint -->
+  <circle cx="168" cy="168" r="16" fill="white" opacity="0.4"/>
+  <!-- Search lines - white for contrast -->
+  <line x1="158" y1="192" x2="266" y2="192" stroke="white" stroke-width="8" stroke-linecap="round" opacity="0.9"/>
+  <line x1="158" y1="218" x2="244" y2="218" stroke="white" stroke-width="8" stroke-linecap="round" opacity="0.55"/>
+  <line x1="158" y1="244" x2="222" y2="244" stroke="white" stroke-width="8" stroke-linecap="round" opacity="0.3"/>
+</svg>
