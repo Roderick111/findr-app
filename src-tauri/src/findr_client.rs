@@ -37,6 +37,71 @@ pub struct IndexStatus {
     pub other: serde_json::Map<String, serde_json::Value>,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DoctorReport {
+    pub version: String,
+    pub database: DatabaseInfo,
+    pub ocr: OcrInfo,
+    pub hnsw: HnswInfo,
+    pub content_index: ContentIndexInfo,
+    #[serde(default)]
+    pub index_location: Option<String>,
+    pub scan_paths: Vec<ScanPath>,
+    pub permissions: PermissionsInfo,
+    pub os: OsInfo,
+    #[serde(default)]
+    pub recent_errors: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DatabaseInfo {
+    pub ok: bool,
+    pub path: String,
+    pub size_bytes: u64,
+    pub files_indexed: u64,
+    pub content_indexed: u64,
+    pub last_updated: Option<String>,
+    pub last_full_reindex: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct OcrInfo {
+    pub binary_found: bool,
+    pub total_images: u64,
+    pub ocr_completed: u64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct HnswInfo {
+    pub index_exists: bool,
+    pub vector_count: u64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ContentIndexInfo {
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct ScanPath {
+    pub path: String,
+    pub exists: bool,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct PermissionsInfo {
+    pub ok: bool,
+    #[serde(default)]
+    pub inaccessible: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct OsInfo {
+    pub os: String,
+    pub arch: String,
+}
+
 pub async fn search(
     app: &AppHandle,
     query: &str,
@@ -82,6 +147,46 @@ pub async fn index_status(app: &AppHandle) -> Result<IndexStatus, String> {
 
 pub async fn version(app: &AppHandle) -> Result<String, String> {
     let stdout = run_findr(app, &["--version"]).await?;
+    Ok(stdout.trim().to_string())
+}
+
+pub async fn doctor(app: &AppHandle) -> Result<DoctorReport, String> {
+    let stdout = run_findr(app, &["doctor", "--json"]).await?;
+    serde_json::from_str::<DoctorReport>(&stdout)
+        .map_err(|e| format!("parse error: {} (stdout: {})", e, &stdout[..stdout.len().min(200)]))
+}
+
+pub async fn add_path(app: &AppHandle, path: &str) -> Result<String, String> {
+    run_findr(app, &["index", "add-path", path]).await
+}
+
+pub async fn rebuild(
+    app: &AppHandle,
+    preset: Option<&str>,
+    paths: Option<&str>,
+) -> Result<String, String> {
+    let mut args = vec!["index", "rebuild"];
+    if let Some(p) = preset {
+        args.push("--preset");
+        args.push(p);
+    }
+    if let Some(p) = paths {
+        args.push("--paths");
+        args.push(p);
+    }
+    run_findr(app, &args).await
+}
+
+pub async fn sync(app: &AppHandle) -> Result<String, String> {
+    run_findr(app, &["index", "sync"]).await
+}
+
+pub async fn set_key(app: &AppHandle, key: &str) -> Result<String, String> {
+    run_findr(app, &["config", "set-key", key]).await
+}
+
+pub async fn get_key_status(app: &AppHandle) -> Result<String, String> {
+    let stdout = run_findr(app, &["config", "get-key"]).await?;
     Ok(stdout.trim().to_string())
 }
 

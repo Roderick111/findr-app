@@ -1,3 +1,4 @@
+mod background;
 mod commands;
 mod findr_client;
 mod license;
@@ -36,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_process::init());
 
@@ -97,11 +99,14 @@ pub fn run() {
             }
 
             let show_item = MenuItem::with_id(app, "show", "Show findr", true, None::<&str>)?;
+            let settings_item =
+                MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
                 &[
                     &show_item,
+                    &settings_item,
                     &PredefinedMenuItem::separator(app)?,
                     &quit_item,
                 ],
@@ -118,6 +123,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_overlay(app),
+                    "settings" => show_settings(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -133,6 +139,8 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            background::spawn_index_daemon(app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -146,6 +154,16 @@ pub fn run() {
             commands::activate_license,
             commands::start_trial,
             commands::get_trial_days_remaining,
+            commands::open_settings,
+            commands::get_doctor_report,
+            commands::add_scan_path,
+            commands::remove_scan_path,
+            commands::run_reindex,
+            commands::run_sync,
+            commands::set_api_key,
+            commands::get_api_key_status,
+            commands::get_autostart_status,
+            commands::set_autostart,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -196,6 +214,13 @@ fn toggle_overlay<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
             panel.show();
         panel.make_key_window();
         }
+    }
+}
+
+fn show_settings<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 }
 

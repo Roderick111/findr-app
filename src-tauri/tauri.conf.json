@@ -28,6 +28,23 @@
         "skipTaskbar": true,
         "focus": true,
         "shadow": true
+      },
+      {
+        "label": "settings",
+        "title": "findr Settings",
+        "width": 600,
+        "height": 700,
+        "minWidth": 500,
+        "minHeight": 500,
+        "center": true,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "visible": false,
+        "skipTaskbar": false,
+        "focus": true,
+        "shadow": true
       }
     ],
     "security": {
@@ -43,7 +60,7 @@
       "endpoints": [
         "https://github.com/Roderick111/findr-app/releases/latest/download/latest.json"
       ],
-      "pubkey": ""
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhFQjg2NTY5QjlEMjFENEUKUldST0hkSzVhV1c0am85MnZVMWpQYk03djNPbmFuRC9wbDJUMk5mY0ZZRG5TVFhBdjdPaGc0bVYK"
     }
   },
   "bundle": {

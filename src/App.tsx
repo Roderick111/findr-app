@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openInOS } from "@tauri-apps/plugin-shell";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { File, Folder, FileText, FileImage, Code } from "lucide-react";
+import { File, Folder, FileText, FileImage, Code, Settings } from "lucide-react";
 import { useDebounced } from "./hooks/useDebounced";
 import { Preview } from "./components/Preview";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -250,7 +250,16 @@ export default function App() {
 
       {/* Footer */}
       <div className="px-4 py-1.5 border-t border-white/5 text-xs flex justify-between items-center">
-        {statusLine}
+        <div className="flex items-center gap-2">
+          {statusLine}
+          <button
+            onClick={() => invoke("open_settings").catch(() => {})}
+            className="text-neutral-600 hover:text-neutral-400 transition-colors"
+            title="Settings"
+          >
+            <Settings size={13} />
+          </button>
+        </div>
         <span className="text-neutral-600">
           <Kbd>↵</Kbd> open · <Kbd>⌘R</Kbd> reveal · <Kbd>⌘C</Kbd> path · <Kbd>⌘⇧C</Kbd> name · <Kbd>esc</Kbd> hide
         </span>

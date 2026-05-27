@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+.settings-root {
+  background: #171717;
+}
+
 :root {
   color-scheme: dark;
 }

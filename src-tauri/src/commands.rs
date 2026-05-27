@@ -1,6 +1,7 @@
-use crate::findr_client::{self, IndexStatus, SearchResponse};
+use crate::findr_client::{self, DoctorReport, IndexStatus, SearchResponse};
 use crate::license::{self, LicenseState, LicenseStatus};
 use tauri::{AppHandle, Manager};
+use tauri_plugin_autostart::AutoLaunchManager;
 use tauri_plugin_store::StoreExt;
 
 #[tauri::command]
@@ -52,6 +53,76 @@ pub fn hide_overlay(app: AppHandle) {
     }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
+    }
+}
+
+#[tauri::command]
+pub async fn get_doctor_report(app: AppHandle) -> Result<DoctorReport, String> {
+    findr_client::doctor(&app).await
+}
+
+#[tauri::command]
+pub async fn add_scan_path(app: AppHandle, path: String) -> Result<String, String> {
+    findr_client::add_path(&app, &path).await
+}
+
+#[tauri::command]
+pub async fn remove_scan_path(app: AppHandle, path: String) -> Result<String, String> {
+    let report = findr_client::doctor(&app).await?;
+    let remaining: Vec<&str> = report
+        .scan_paths
+        .iter()
+        .map(|p| p.path.as_str())
+        .filter(|p| *p != path)
+        .collect();
+    if remaining.is_empty() {
+        return Err("cannot remove last scan path".into());
+    }
+    let paths_str = remaining.join(",");
+    findr_client::rebuild(&app, None, Some(&paths_str)).await
+}
+
+#[tauri::command]
+pub async fn run_reindex(app: AppHandle) -> Result<String, String> {
+    findr_client::rebuild(&app, None, None).await
+}
+
+#[tauri::command]
+pub async fn run_sync(app: AppHandle) -> Result<String, String> {
+    findr_client::sync(&app).await
+}
+
+#[tauri::command]
+pub async fn set_api_key(app: AppHandle, key: String) -> Result<String, String> {
+    findr_client::set_key(&app, &key).await
+}
+
+#[tauri::command]
+pub async fn get_api_key_status(app: AppHandle) -> Result<String, String> {
+    findr_client::get_key_status(&app).await
+}
+
+#[tauri::command]
+pub fn get_autostart_status(app: AppHandle) -> Result<bool, String> {
+    let manager = app.state::<AutoLaunchManager>();
+    manager.is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let manager = app.state::<AutoLaunchManager>();
+    if enabled {
+        manager.enable().map_err(|e| e.to_string())
+    } else {
+        manager.disable().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+pub fn open_settings(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 }
 
