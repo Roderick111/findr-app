@@ -31,6 +31,8 @@ anyhow = "1"
 ureq = { version = "2", features = ["json"] }
 sha2 = "0.10"
 trash = "5.2.6"
+sentry = "0.42"
+tauri-plugin-sentry = "0.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }

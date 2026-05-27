@@ -30,8 +30,18 @@ tauri_panel! {
     })
 }
 
+pub fn run_with_sentry(client: sentry::ClientInitGuard) {
+    let builder = base_builder().plugin(tauri_plugin_sentry::init(&*client));
+    finish_builder(builder);
+    drop(client);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    finish_builder(base_builder());
+}
+
+fn base_builder() -> tauri::Builder<tauri::Wry> {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
@@ -68,6 +78,10 @@ pub fn run() {
         ));
     }
 
+    builder
+}
+
+fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
     builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
