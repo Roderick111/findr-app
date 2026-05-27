@@ -8,7 +8,7 @@ import { useDebounced } from "./hooks/useDebounced";
 import { Preview } from "./components/Preview";
 import { ActionsPanel } from "./components/ActionsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
-import type { SearchResponse, SearchResult } from "./types";
+import type { DoctorReport, SearchResponse, SearchResult } from "./types";
 
 const LIMIT = 30;
 const RECENT_LIMIT = 20;
@@ -41,9 +41,35 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
   const [showActions, setShowActions] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  const [indexingProgress, setIndexingProgress] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    invoke<DoctorReport>("get_doctor_report")
+      .then((report) => {
+        setNeedsOnboarding(report.scan_paths.length === 0);
+      })
+      .catch(() => setNeedsOnboarding(false));
+  }, []);
+
+  const startIndexing = useCallback(async () => {
+    setIndexingProgress("Adding home folder...");
+    try {
+      const home = await invoke<string>("get_home_dir");
+      await invoke("add_scan_path", { path: home });
+      setIndexingProgress("Indexing your files...");
+      await invoke("run_sync");
+      setNeedsOnboarding(false);
+      setIndexingProgress(null);
+    } catch (e) {
+      setIndexingProgress(null);
+      setError(`Setup failed: ${e}`);
+      setNeedsOnboarding(false);
+    }
+  }, []);
 
   const flashToast = useCallback((msg: string) => {
     setToast(msg);
@@ -291,7 +317,34 @@ export default function App() {
       <div className="flex-1 flex min-h-0">
         <div className="w-[42%] min-w-[280px] flex flex-col" style={{ borderRight: "1px solid var(--border)" }}>
           <div ref={listRef} className="flex-1 overflow-y-auto">
-            {results.length === 0 && !loading ? (
+            {needsOnboarding ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
+                {indexingProgress ? (
+                  <>
+                    <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
+                    <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{indexingProgress}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm" style={{ color: "var(--text-secondary)" }}>No folders indexed yet</span>
+                    <button
+                      onClick={startIndexing}
+                      className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                      style={{ background: "var(--accent)", color: "var(--accent-text)" }}
+                    >
+                      Index Home Folder
+                    </button>
+                    <button
+                      onClick={openSettings}
+                      className="text-xs transition-colors"
+                      style={{ color: "var(--text-tertiary)" }}
+                    >
+                      Choose folders manually
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : results.length === 0 && !loading ? (
               <div className="flex items-center justify-center h-full">
                 <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>
                   {query.trim().length > 0 ? "No results found" : "Start typing to search"}

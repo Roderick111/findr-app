@@ -128,6 +128,13 @@ pub async fn get_api_key_status(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn get_home_dir() -> Result<String, String> {
+    dirs::home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "could not determine home directory".to_string())
+}
+
+#[tauri::command]
 pub fn get_autostart_status(app: AppHandle) -> Result<bool, String> {
     let manager = app.state::<AutoLaunchManager>();
     manager.is_enabled().map_err(|e| e.to_string())

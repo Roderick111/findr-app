@@ -209,6 +209,7 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
             commands::run_sync,
             commands::set_api_key,
             commands::get_api_key_status,
+            commands::get_home_dir,
             commands::get_autostart_status,
             commands::set_autostart,
             commands::get_theme,
