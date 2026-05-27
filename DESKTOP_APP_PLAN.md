@@ -2,7 +2,7 @@
 
 ## Overview
 
-findr Desktop is a Tauri 2 + React 19 app that wraps the findr CLI as a native overlay for macOS, Linux, and Windows. It provides instant file search with rich preview, keyboard-driven navigation, and background indexing.
+findr Desktop is a Tauri 2 + React 19 app that wraps the findr CLI as a native overlay for macOS. It provides instant file search with rich preview, keyboard-driven navigation, and background indexing.
 
 ## Architecture
 
@@ -37,10 +37,12 @@ Both share the same React app via `main.tsx` — window label determines which c
 
 ### Background Daemon
 
-`background.rs` spawns a thread that:
-1. On startup: checks index status, runs initial sync if empty
+`background.rs` spawns a tokio task with `AtomicBool` shutdown flag:
+1. On startup: checks index status, runs initial sync if empty (with 30s timeout)
 2. Every 5 minutes: runs `findr index sync` to pick up filesystem changes
 3. Emits `index-sync` events for the settings UI status display
+4. Exponential backoff on consecutive failures (capped at 10 minutes)
+5. `SyncLock` prevents races between daemon and user-triggered sync/rebuild
 
 ### Licensing
 
@@ -54,10 +56,11 @@ Both share the same React app via `main.tsx` — window label determines which c
 
 | Component | Role |
 |---|---|
-| `App.tsx` | Search input, result list, preview pane, keyboard handler, toast system |
-| `Preview.tsx` | File preview — images via asset protocol, text/code/markdown via fs read, PDF via embed |
+| `App.tsx` | Search input, result list, preview pane, keyboard handler, toast system, first-run onboarding |
+| `Preview.tsx` | File preview — images via asset protocol, text/code/markdown via fs `open()`+`read()` (50KB cap), PDF via embed |
 | `ActionsPanel.tsx` | Cmd+K popup — open, reveal, copy path/filename, trash, settings |
-| `LicenseGate.tsx` | Blocks app until license active/trial, shows activation UI |
+| `ErrorBoundary.tsx` | Catches React render errors, shows fallback UI with reload button |
+| `LicenseGate.tsx` | License gate (currently disabled for testing) |
 | `UpdateBanner.tsx` | Auto-update banner at top of overlay |
 | `Settings.tsx` | Scan paths, theme, hotkey, autostart, semantic search, index status, reindex, license, about |
 
@@ -94,6 +97,7 @@ All in `commands.rs`, registered in `lib.rs`:
 | `get_license_state` | — | Reads + validates license from store |
 | `activate_license` | — | Polar.sh API call |
 | `start_trial` | — | Creates trial state in store |
+| `get_home_dir` | — | Returns user home directory via `dirs` crate |
 
 ## Tauri Scope Configuration
 
@@ -146,19 +150,25 @@ animation: backdrop-keepalive 1s steps(2) infinite;
 
 GitHub Actions workflow (`.github/workflows/release.yml`):
 1. Triggered by `v*` tag push
-2. Matrix: macOS arm64, macOS x86_64, Linux, Windows
+2. Matrix: macOS arm64, macOS x86_64 (Mac-only for now)
 3. Reads pinned findr version from `findr_version.txt`
-4. Downloads matching findr + findr-ocr binaries from core repo releases
-5. Runs `tauri-action` — builds, signs, creates draft GitHub release with updater JSON
+4. Downloads `findr-macos-arm64`, `findr-macos-x86_64`, and `findr-ocr-macos-universal` from core repo releases
+5. OCR universal binary copied to both arch targets
+6. Runs `tauri-action` — builds, signs, creates draft GitHub release with updater JSON
 
 ## Remaining Work
 
 ### Desktop
-- [ ] Add `--wait 3` to mutating sidecar calls (add_path, rebuild, sync) for lock contention edge cases
 - [x] Sentry crash reporting (tauri-plugin-sentry, errors forwarded via IPC to Rust client, shipped 2026-05-27)
+- [x] Code review fixes — 39 findings fixed (security, sidecar robustness, license, UX), shipped 2026-05-27
+- [x] Test suite — 135 tests (70 Rust + 65 vitest), shipped 2026-05-27
+- [x] First-run onboarding — auto-index home folder, shipped 2026-05-27
+- [x] App icon — cyan magnifying glass with search lines, shipped 2026-05-27
+- [ ] Add `--wait 3` to mutating sidecar calls (add_path, rebuild, sync) for lock contention edge cases
 - [ ] Customizable hotkey (UI placeholder exists)
 - [ ] Better error UX when sidecar binary missing or crashes
-- [ ] Windows/Linux testing (NSPanel is macOS-only, fallback exists but untested)
+- [ ] Re-enable license gate with proper unknown→activation flow
+- [ ] Apple Developer cert for code signing + notarization
 
 ### Depends on Core
 - [x] Lock scope narrowing (shipped 2026-05-27)
