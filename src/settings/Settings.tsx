@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import { formatSize } from "../utils/format";
 import {
   FolderOpen,
   HardDrive,
@@ -448,12 +449,6 @@ function IndexStatusSection({
   const ocr = report.ocr;
   const hnsw = report.hnsw;
 
-  const formatBytes = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
   const formatTime = (iso: string | null) => {
     if (!iso) return "never";
     return new Date(iso).toLocaleString();
@@ -469,8 +464,8 @@ function IndexStatusSection({
         <Stat label="Content indexed" value={db.content_indexed.toLocaleString()} />
         <Stat label="OCR" value={`${ocr.ocr_completed}/${ocr.total_images} images`} />
         <Stat label="Semantic vectors" value={hnsw.index_exists ? hnsw.vector_count.toLocaleString() : "not built"} />
-        <Stat label="DB size" value={formatBytes(db.size_bytes)} />
-        <Stat label="Content index" value={formatBytes(report.content_index.size_bytes)} />
+        <Stat label="DB size" value={formatSize(db.size_bytes)} />
+        <Stat label="Content index" value={formatSize(report.content_index.size_bytes)} />
         <Stat label="Last sync" value={formatTime(db.last_updated)} />
         <Stat label="Last full reindex" value={formatTime(db.last_full_reindex)} />
       </div>

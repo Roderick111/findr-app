@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { readTextFile } from "@tauri-apps/plugin-fs";
+import { open } from "@tauri-apps/plugin-fs";
 import ReactMarkdown from "react-markdown";
 import {
   File,
@@ -13,18 +13,10 @@ import {
   FileArchive,
 } from "lucide-react";
 import type { SearchResult } from "../types";
-
-const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp", "svg"];
-const TEXT_EXTS = ["txt", "log", "csv", "json", "jsonl", "yml", "yaml", "xml", "toml", "ini", "env"];
-const MD_EXTS = ["md", "markdown", "mdx"];
-const CODE_EXTS = [
-  "rs", "ts", "tsx", "js", "jsx", "py", "go", "swift", "java", "c", "cpp", "h", "hpp",
-  "rb", "php", "sh", "bash", "zsh", "css", "scss", "vue", "svelte", "html", "sql",
-  "kt", "dart", "lua", "r", "pl", "scala", "ex", "exs", "clj",
-];
-const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm"];
-const AUDIO_EXTS = ["mp3", "wav", "m4a", "flac", "ogg"];
-const ARCHIVE_EXTS = ["zip", "tar", "gz", "rar", "7z"];
+import {
+  IMAGE_EXTS, TEXT_EXTS, MD_EXTS, CODE_EXTS, VIDEO_EXTS, AUDIO_EXTS, ARCHIVE_EXTS,
+  formatSize, formatDate, previewKind,
+} from "../utils/format";
 
 const MAX_PREVIEW_BYTES = 50_000;
 
@@ -39,46 +31,6 @@ function bigIconFor(r: SearchResult) {
     return <FileText size={96} style={{ color: "var(--icon-doc)" }} />;
   if (CODE_EXTS.includes(ext)) return <Code size={96} style={{ color: "var(--icon-code)" }} />;
   return <File size={96} style={{ color: "var(--icon-default)" }} />;
-}
-
-function formatSize(bytes: number | null): string {
-  if (bytes === null) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) {
-    return `Today at ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) {
-    return `Yesterday at ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  }
-  return d.toLocaleString([], {
-    year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
-}
-
-type PreviewKind = "image" | "pdf" | "markdown" | "text" | "code" | "icon";
-
-function previewKind(r: SearchResult): PreviewKind {
-  if (r.is_dir) return "icon";
-  const ext = r.file_type?.toLowerCase() ?? "";
-  if (IMAGE_EXTS.includes(ext)) return "image";
-  if (ext === "pdf") return "pdf";
-  if (MD_EXTS.includes(ext)) return "markdown";
-  if (TEXT_EXTS.includes(ext)) return "text";
-  if (CODE_EXTS.includes(ext)) return "code";
-  return "icon";
 }
 
 export function Preview({ result }: { result: SearchResult | null }) {
@@ -97,19 +49,27 @@ export function Preview({ result }: { result: SearchResult | null }) {
     setTextContent(null);
     setTextError(null);
 
-    readTextFile(result.path)
-      .then((content) => {
-        if (cancelled) return;
-        if (content.length > MAX_PREVIEW_BYTES) {
-          setTextContent(content.slice(0, MAX_PREVIEW_BYTES) + "\n\n… (truncated)");
-        } else {
-          setTextContent(content);
+    (async () => {
+      try {
+        const file = await open(result.path, { read: true });
+        try {
+          const buf = new Uint8Array(MAX_PREVIEW_BYTES + 1);
+          const bytesRead = await file.read(buf);
+          if (cancelled) return;
+          const slice = bytesRead !== null ? buf.slice(0, Math.min(bytesRead, MAX_PREVIEW_BYTES)) : buf.slice(0, 0);
+          let text = new TextDecoder("utf-8", { fatal: false }).decode(slice);
+          if (bytesRead !== null && bytesRead > MAX_PREVIEW_BYTES) {
+            text += "\n\n… (truncated)";
+          }
+          setTextContent(text);
+        } finally {
+          await file.close();
         }
-      })
-      .catch((e) => {
+      } catch (e) {
         if (cancelled) return;
         setTextError(String(e));
-      });
+      }
+    })();
 
     return () => { cancelled = true; };
   }, [result?.path, kind]);

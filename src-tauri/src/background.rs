@@ -158,3 +158,70 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
 
     shutdown
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── SyncLock ────────────────────────────────────────────────────
+
+    #[test]
+    fn sync_lock_default_is_unlocked() {
+        let lock = SyncLock::default();
+        assert!(!lock.0.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn try_acquire_succeeds_when_unlocked() {
+        let lock = SyncLock::default();
+        assert!(lock.try_acquire());
+    }
+
+    #[test]
+    fn try_acquire_fails_when_already_held() {
+        let lock = SyncLock::default();
+        assert!(lock.try_acquire());
+        assert!(!lock.try_acquire()); // second acquire fails
+    }
+
+    #[test]
+    fn release_allows_reacquire() {
+        let lock = SyncLock::default();
+        assert!(lock.try_acquire());
+        lock.release();
+        assert!(lock.try_acquire()); // can acquire again after release
+    }
+
+    #[test]
+    fn release_when_not_held_is_safe() {
+        let lock = SyncLock::default();
+        lock.release(); // no-op, should not panic
+        assert!(lock.try_acquire());
+    }
+
+    #[test]
+    fn acquire_release_cycle_multiple_times() {
+        let lock = SyncLock::default();
+        for _ in 0..10 {
+            assert!(lock.try_acquire());
+            lock.release();
+        }
+    }
+
+    // ── Constants sanity checks ─────────────────────────────────────
+
+    #[test]
+    fn sync_interval_is_5_minutes() {
+        assert_eq!(SYNC_INTERVAL.as_secs(), 300);
+    }
+
+    #[test]
+    fn max_backoff_is_10_minutes() {
+        assert_eq!(MAX_BACKOFF.as_secs(), 600);
+    }
+
+    #[test]
+    fn max_backoff_exceeds_sync_interval() {
+        assert!(MAX_BACKOFF > SYNC_INTERVAL);
+    }
+}

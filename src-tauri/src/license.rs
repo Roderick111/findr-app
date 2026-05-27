@@ -308,3 +308,402 @@ fn platform_id() -> Result<String, String> {
         .map(|s| s.trim().to_string())
         .map_err(|e| format!("/etc/machine-id: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    fn state_with_trial_started(days_ago: i64) -> LicenseState {
+        let started = chrono::Utc::now() - chrono::Duration::days(days_ago);
+        LicenseState {
+            status: LicenseStatus::Trial,
+            trial_started_at: Some(started.to_rfc3339()),
+            ..Default::default()
+        }
+    }
+
+    fn active_state_validated_days_ago(days: i64) -> LicenseState {
+        let ts = chrono::Utc::now() - chrono::Duration::days(days);
+        LicenseState {
+            status: LicenseStatus::Active,
+            validated_at: Some(ts.to_rfc3339()),
+            activation_id: Some("act_test123".into()),
+            ..Default::default()
+        }
+    }
+
+    // ── LicenseState default ────────────────────────────────────────
+
+    #[test]
+    fn default_status_is_unknown() {
+        let state = LicenseState::default();
+        assert_eq!(state.status, LicenseStatus::Unknown);
+    }
+
+    #[test]
+    fn default_all_optional_fields_none() {
+        let state = LicenseState::default();
+        assert!(state.key.is_none());
+        assert!(state.activated_at.is_none());
+        assert!(state.validated_at.is_none());
+        assert!(state.activation_id.is_none());
+        assert!(state.trial_started_at.is_none());
+    }
+
+    // ── LicenseState serialization ──────────────────────────────────
+
+    #[test]
+    fn key_field_skipped_during_serialization() {
+        let state = LicenseState {
+            status: LicenseStatus::Active,
+            key: Some("secret-key-123".into()),
+            activated_at: Some("2026-01-01T00:00:00Z".into()),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&state).unwrap();
+        // key must NOT appear in serialized output
+        assert!(json.get("key").is_none(), "key field must be skip_serializing");
+        // other fields must be present
+        assert_eq!(json["status"], "active");
+        assert_eq!(json["activated_at"], "2026-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn key_field_populated_during_deserialization() {
+        // Old persisted data might have a key field — backwards compat
+        let json = r#"{
+            "status": "active",
+            "key": "old-key-from-disk",
+            "activated_at": "2026-01-01T00:00:00Z"
+        }"#;
+        let state: LicenseState = serde_json::from_str(json).unwrap();
+        assert_eq!(state.key, Some("old-key-from-disk".into()));
+        assert_eq!(state.status, LicenseStatus::Active);
+    }
+
+    #[test]
+    fn key_field_defaults_to_none_when_absent() {
+        let json = r#"{"status": "trial"}"#;
+        let state: LicenseState = serde_json::from_str(json).unwrap();
+        assert!(state.key.is_none());
+    }
+
+    #[test]
+    fn serialization_roundtrip_loses_key() {
+        let original = LicenseState {
+            status: LicenseStatus::Active,
+            key: Some("secret".into()),
+            ..Default::default()
+        };
+        let json_str = serde_json::to_string(&original).unwrap();
+        let restored: LicenseState = serde_json::from_str(&json_str).unwrap();
+        // key should be gone after serialize -> deserialize
+        assert!(restored.key.is_none());
+    }
+
+    // ── start_trial ─────────────────────────────────────────────────
+
+    #[test]
+    fn start_trial_returns_trial_status() {
+        let state = start_trial();
+        assert_eq!(state.status, LicenseStatus::Trial);
+    }
+
+    #[test]
+    fn start_trial_sets_trial_started_at() {
+        let before = chrono::Utc::now();
+        let state = start_trial();
+        let after = chrono::Utc::now();
+
+        let started = state.trial_started_at.as_ref().unwrap();
+        let ts = chrono::DateTime::parse_from_rfc3339(started)
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert!(ts >= before && ts <= after);
+    }
+
+    #[test]
+    fn start_trial_other_fields_none() {
+        let state = start_trial();
+        assert!(state.key.is_none());
+        assert!(state.activated_at.is_none());
+        assert!(state.validated_at.is_none());
+        assert!(state.activation_id.is_none());
+    }
+
+    // ── trial_days_remaining ────────────────────────────────────────
+
+    #[test]
+    fn fresh_trial_has_14_days() {
+        let state = state_with_trial_started(0);
+        assert_eq!(trial_days_remaining(&state), TRIAL_DAYS);
+    }
+
+    #[test]
+    fn trial_started_7_days_ago_has_7_days() {
+        let state = state_with_trial_started(7);
+        assert_eq!(trial_days_remaining(&state), 7);
+    }
+
+    #[test]
+    fn trial_started_13_days_ago_has_1_day() {
+        let state = state_with_trial_started(13);
+        assert_eq!(trial_days_remaining(&state), 1);
+    }
+
+    #[test]
+    fn trial_started_14_days_ago_returns_zero() {
+        let state = state_with_trial_started(14);
+        assert_eq!(trial_days_remaining(&state), 0);
+    }
+
+    #[test]
+    fn trial_started_30_days_ago_never_negative() {
+        let state = state_with_trial_started(30);
+        assert_eq!(trial_days_remaining(&state), 0);
+    }
+
+    #[test]
+    fn trial_days_remaining_no_timestamp_returns_zero() {
+        let state = LicenseState {
+            status: LicenseStatus::Trial,
+            trial_started_at: None,
+            ..Default::default()
+        };
+        assert_eq!(trial_days_remaining(&state), 0);
+    }
+
+    #[test]
+    fn trial_days_remaining_invalid_timestamp_returns_zero() {
+        let state = LicenseState {
+            status: LicenseStatus::Trial,
+            trial_started_at: Some("not-a-date".into()),
+            ..Default::default()
+        };
+        assert_eq!(trial_days_remaining(&state), 0);
+    }
+
+    // ── check_trial (via check_license_state) ───────────────────────
+
+    #[test]
+    fn check_trial_within_period_returns_trial() {
+        let state = state_with_trial_started(5);
+        assert_eq!(check_license_state(&state), LicenseStatus::Trial);
+    }
+
+    #[test]
+    fn check_trial_at_day_13_returns_trial() {
+        let state = state_with_trial_started(13);
+        assert_eq!(check_license_state(&state), LicenseStatus::Trial);
+    }
+
+    #[test]
+    fn check_trial_expired_returns_trial_expired() {
+        let state = state_with_trial_started(14);
+        assert_eq!(check_license_state(&state), LicenseStatus::TrialExpired);
+    }
+
+    #[test]
+    fn check_trial_well_past_expiry_returns_trial_expired() {
+        let state = state_with_trial_started(100);
+        assert_eq!(check_license_state(&state), LicenseStatus::TrialExpired);
+    }
+
+    // ── check_license_state ─────────────────────────────────────────
+
+    #[test]
+    fn active_with_recent_validation_stays_active() {
+        let state = active_state_validated_days_ago(1);
+        assert_eq!(check_license_state(&state), LicenseStatus::Active);
+    }
+
+    #[test]
+    fn active_within_grace_period_stays_active() {
+        let state = active_state_validated_days_ago(OFFLINE_GRACE_DAYS);
+        assert_eq!(check_license_state(&state), LicenseStatus::Active);
+    }
+
+    #[test]
+    fn active_past_grace_period_returns_invalid() {
+        let state = active_state_validated_days_ago(OFFLINE_GRACE_DAYS + 1);
+        assert_eq!(check_license_state(&state), LicenseStatus::Invalid);
+    }
+
+    #[test]
+    fn active_way_past_grace_returns_invalid() {
+        let state = active_state_validated_days_ago(30);
+        assert_eq!(check_license_state(&state), LicenseStatus::Invalid);
+    }
+
+    #[test]
+    fn active_with_no_validated_at_stays_active() {
+        let state = LicenseState {
+            status: LicenseStatus::Active,
+            validated_at: None,
+            ..Default::default()
+        };
+        assert_eq!(check_license_state(&state), LicenseStatus::Active);
+    }
+
+    #[test]
+    fn active_with_invalid_validated_at_stays_active() {
+        // Bad timestamp can't be parsed, so grace-period check is skipped
+        let state = LicenseState {
+            status: LicenseStatus::Active,
+            validated_at: Some("garbage".into()),
+            ..Default::default()
+        };
+        assert_eq!(check_license_state(&state), LicenseStatus::Active);
+    }
+
+    #[test]
+    fn unknown_returns_unknown() {
+        let state = LicenseState::default();
+        assert_eq!(check_license_state(&state), LicenseStatus::Unknown);
+    }
+
+    #[test]
+    fn invalid_returns_invalid() {
+        let state = LicenseState {
+            status: LicenseStatus::Invalid,
+            ..Default::default()
+        };
+        assert_eq!(check_license_state(&state), LicenseStatus::Invalid);
+    }
+
+    #[test]
+    fn trial_expired_returns_trial_expired() {
+        let state = LicenseState {
+            status: LicenseStatus::TrialExpired,
+            ..Default::default()
+        };
+        assert_eq!(check_license_state(&state), LicenseStatus::TrialExpired);
+    }
+
+    // ── check_license_state_cached ──────────────────────────────────
+
+    #[test]
+    fn cached_returns_cached_result_within_ttl() {
+        let cache = ValidationCacheState::default();
+        // Pre-populate cache with Active result
+        {
+            let mut guard = cache.0.lock().unwrap();
+            guard.last_checked = Some(chrono::Utc::now());
+            guard.last_result = Some(LicenseStatus::Active);
+        }
+        let state = active_state_validated_days_ago(1);
+        let result = check_license_state_cached(&state, &cache, None);
+        assert_eq!(result, LicenseStatus::Active);
+    }
+
+    #[test]
+    fn cached_returns_stale_cache_ignored() {
+        let cache = ValidationCacheState::default();
+        // Pre-populate cache with old result
+        {
+            let mut guard = cache.0.lock().unwrap();
+            guard.last_checked =
+                Some(chrono::Utc::now() - chrono::Duration::seconds(VALIDATION_CACHE_SECS + 1));
+            guard.last_result = Some(LicenseStatus::Active);
+        }
+        // State is active and within grace period — should bypass stale cache and return Active
+        let state = active_state_validated_days_ago(1);
+        let result = check_license_state_cached(&state, &cache, None);
+        assert_eq!(result, LicenseStatus::Active);
+    }
+
+    #[test]
+    fn cached_active_within_grace_no_revalidation() {
+        let cache = ValidationCacheState::default();
+        // Empty cache, but state is within grace period — no validation needed
+        let state = active_state_validated_days_ago(3);
+        let result = check_license_state_cached(&state, &cache, None);
+        assert_eq!(result, LicenseStatus::Active);
+    }
+
+    #[test]
+    fn cached_active_past_grace_no_key_returns_invalid() {
+        let cache = ValidationCacheState::default();
+        let state = active_state_validated_days_ago(OFFLINE_GRACE_DAYS + 1);
+        // No key available and grace period expired — should return Invalid
+        let result = check_license_state_cached(&state, &cache, None);
+        assert_eq!(result, LicenseStatus::Invalid);
+    }
+
+    #[test]
+    fn cached_trial_delegates_to_check_trial() {
+        let cache = ValidationCacheState::default();
+        let state = state_with_trial_started(5);
+        let result = check_license_state_cached(&state, &cache, None);
+        assert_eq!(result, LicenseStatus::Trial);
+    }
+
+    #[test]
+    fn cached_trial_expired_delegates_to_check_trial() {
+        let cache = ValidationCacheState::default();
+        let state = state_with_trial_started(20);
+        let result = check_license_state_cached(&state, &cache, None);
+        assert_eq!(result, LicenseStatus::TrialExpired);
+    }
+
+    #[test]
+    fn cached_unknown_passes_through() {
+        let cache = ValidationCacheState::default();
+        let state = LicenseState::default();
+        let result = check_license_state_cached(&state, &cache, None);
+        assert_eq!(result, LicenseStatus::Unknown);
+    }
+
+    #[test]
+    fn cached_invalid_passes_through() {
+        let cache = ValidationCacheState::default();
+        let state = LicenseState {
+            status: LicenseStatus::Invalid,
+            ..Default::default()
+        };
+        let result = check_license_state_cached(&state, &cache, None);
+        assert_eq!(result, LicenseStatus::Invalid);
+    }
+
+    // ── LicenseStatus serde ─────────────────────────────────────────
+
+    #[test]
+    fn license_status_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&LicenseStatus::TrialExpired).unwrap(),
+            "\"trial_expired\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LicenseStatus::Active).unwrap(),
+            "\"active\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LicenseStatus::Unknown).unwrap(),
+            "\"unknown\""
+        );
+    }
+
+    #[test]
+    fn license_status_deserializes_snake_case() {
+        let status: LicenseStatus = serde_json::from_str("\"trial_expired\"").unwrap();
+        assert_eq!(status, LicenseStatus::TrialExpired);
+    }
+
+    // ── ValidationCache ─────────────────────────────────────────────
+
+    #[test]
+    fn validation_cache_default_is_empty() {
+        let cache = ValidationCache::default();
+        assert!(cache.last_checked.is_none());
+        assert!(cache.last_result.is_none());
+    }
+
+    #[test]
+    fn validation_cache_state_default_creates_unlocked_mutex() {
+        let cache_state = ValidationCacheState::default();
+        let guard = cache_state.0.lock().unwrap();
+        assert!(guard.last_checked.is_none());
+    }
+}
