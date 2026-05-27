@@ -64,7 +64,7 @@ export function LicenseGate({ children }: Props) {
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center overlay-root">
-        <span className="text-neutral-500 text-sm">Loading...</span>
+        <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>Loading...</span>
       </div>
     );
   }
@@ -84,10 +84,10 @@ export function LicenseGate({ children }: Props) {
     <div className="h-screen flex items-center justify-center overlay-root">
       <div className="w-[380px] flex flex-col gap-5 p-8">
         <div className="text-center">
-          <h1 className="text-2xl font-semibold text-neutral-100 mb-1">
+          <h1 className="text-2xl font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
             findr
           </h1>
-          <p className="text-sm text-neutral-400">
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
             {status === "trial_expired"
               ? "Your trial has expired"
               : "Activate your license to get started"}
@@ -101,26 +101,33 @@ export function LicenseGate({ children }: Props) {
             onChange={(e) => setKeyInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleActivate()}
             placeholder="Enter license key"
-            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-neutral-200 placeholder-neutral-600 outline-none focus:border-blue-500/50"
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+            style={{
+              background: "var(--bg-hover)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+            }}
             autoFocus
           />
           <button
             onClick={handleActivate}
             disabled={activating || !keyInput.trim()}
-            className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-lg text-sm font-medium transition-colors"
+            className="w-full py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
+            style={{ background: "var(--accent)", color: "var(--accent-text)" }}
           >
             {activating ? "Activating..." : "Activate License"}
           </button>
         </div>
 
         {error && (
-          <p className="text-xs text-red-400 text-center">{error}</p>
+          <p className="text-xs text-center" style={{ color: "var(--error)" }}>{error}</p>
         )}
 
         {status !== "trial_expired" && (
           <button
             onClick={handleStartTrial}
-            className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors"
+            className="text-xs transition-colors"
+            style={{ color: "var(--text-tertiary)" }}
           >
             Start 14-day free trial
           </button>
@@ -130,7 +137,8 @@ export function LicenseGate({ children }: Props) {
           href="https://polar.sh/findr"
           target="_blank"
           rel="noreferrer"
-          className="text-xs text-blue-400 hover:text-blue-300 text-center transition-colors"
+          className="text-xs text-center transition-colors"
+          style={{ color: "var(--accent)" }}
         >
           Purchase a license
         </a>
@@ -150,21 +158,22 @@ function TrialBanner({
   if (dismissed) return null;
 
   return (
-    <div className="absolute top-0 inset-x-0 z-40 flex items-center justify-between px-4 py-1.5 bg-amber-900/80 border-b border-amber-700/50 text-xs">
-      <span className="text-amber-200">
+    <div
+      className="absolute top-0 inset-x-0 z-40 flex items-center justify-between px-4 py-1.5 text-xs"
+      style={{
+        background: "var(--warning)",
+        color: "var(--bg-secondary)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <span>
         Trial: {days} day{days !== 1 ? "s" : ""} remaining
       </span>
       <div className="flex gap-3">
-        <button
-          onClick={onActivate}
-          className="text-amber-100 hover:text-white font-medium"
-        >
+        <button onClick={onActivate} className="font-medium opacity-90 hover:opacity-100">
           Activate
         </button>
-        <button
-          onClick={() => setDismissed(true)}
-          className="text-amber-400 hover:text-amber-200"
-        >
+        <button onClick={() => setDismissed(true)} className="opacity-70 hover:opacity-100">
           Dismiss
         </button>
       </div>

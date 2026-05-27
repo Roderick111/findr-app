@@ -1,6 +1,6 @@
 use crate::findr_client::{self, DoctorReport, IndexStatus, SearchResponse};
 use crate::license::{self, LicenseState, LicenseStatus};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::AutoLaunchManager;
 use tauri_plugin_store::StoreExt;
 
@@ -116,6 +116,29 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     } else {
         manager.disable().map_err(|e| e.to_string())
     }
+}
+
+#[tauri::command]
+pub fn get_theme(app: AppHandle) -> Result<String, String> {
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
+    let theme = store
+        .get("theme")
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_else(|| "dark".into());
+    Ok(theme)
+}
+
+#[tauri::command]
+pub fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
+    let store = app.store("settings.json").map_err(|e| e.to_string())?;
+    store.set("theme", serde_json::json!(theme));
+    let _ = app.emit("theme-changed", &theme);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn move_to_trash(path: String) -> Result<(), String> {
+    trash::delete(&path).map_err(|e| format!("failed to trash: {e}"))
 }
 
 #[tauri::command]

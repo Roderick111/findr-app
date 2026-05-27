@@ -1,60 +1,156 @@
 @import "tailwindcss";
 
-.settings-root {
-  background: #171717;
+/* ── Design System ── */
+
+:root, [data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: rgba(250, 250, 250, 0.92);
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #e5e5e5;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.08);
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-tertiary: #a3a3a3;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-focus: rgba(59, 130, 246, 0.5);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-text: #ffffff;
+  --kbd-bg: rgba(0, 0, 0, 0.06);
+  --kbd-border: rgba(0, 0, 0, 0.1);
+  --overlay-bg: rgba(250, 250, 250, 0.85);
+  --overlay-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.2);
+  --overlay-border: rgba(0, 0, 0, 0.1);
+  --preview-bg: #fafafa;
+  --input-bg: rgba(0, 0, 0, 0.03);
+  --toast-bg: rgba(0, 0, 0, 0.8);
+  --toast-text: #ffffff;
+  --error: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+  --icon-folder: #3b82f6;
+  --icon-image: #8b5cf6;
+  --icon-doc: #22c55e;
+  --icon-code: #f97316;
+  --icon-default: #a3a3a3;
+  --md-heading: #171717;
+  --md-text: #374151;
+  --md-link: #2563eb;
+  --md-code-bg: #f3f4f6;
+  --md-code-text: #b45309;
+  --md-pre-bg: #f9fafb;
+  --md-blockquote: #6b7280;
+  --md-border: #d1d5db;
+  --md-th-bg: #f3f4f6;
 }
 
-:root {
+[data-theme="dark"] {
   color-scheme: dark;
+  --bg-primary: rgba(20, 20, 22, 0.85);
+  --bg-secondary: #171717;
+  --bg-tertiary: #262626;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --bg-active: rgba(255, 255, 255, 0.1);
+  --text-primary: #e5e5e5;
+  --text-secondary: #a3a3a3;
+  --text-tertiary: #525252;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(59, 130, 246, 0.5);
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-text: #ffffff;
+  --kbd-bg: rgba(255, 255, 255, 0.1);
+  --kbd-border: rgba(255, 255, 255, 0.1);
+  --overlay-bg: rgba(20, 20, 22, 0.85);
+  --overlay-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.6);
+  --overlay-border: rgba(255, 255, 255, 0.08);
+  --preview-bg: rgba(0, 0, 0, 0.15);
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --toast-bg: rgba(38, 38, 38, 0.9);
+  --toast-text: #f5f5f5;
+  --error: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --icon-folder: #60a5fa;
+  --icon-image: #a78bfa;
+  --icon-doc: #4ade80;
+  --icon-code: #fb923c;
+  --icon-default: #737373;
+  --md-heading: #f5f5f5;
+  --md-text: #d4d4d4;
+  --md-link: #60a5fa;
+  --md-code-bg: #262626;
+  --md-code-text: #fbbf24;
+  --md-pre-bg: #171717;
+  --md-blockquote: #a3a3a3;
+  --md-border: #404040;
+  --md-th-bg: #262626;
 }
+
+/* ── Base ── */
 
 body, html, #root {
   margin: 0;
   padding: 0;
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  color: #e5e5e5;
+  color: var(--text-primary);
   user-select: none;
   overflow: hidden;
   background: transparent;
 }
 
-.overlay-root {
-  background: rgba(20, 20, 22, 0.85);
-  backdrop-filter: blur(24px) saturate(1.5);
-  -webkit-backdrop-filter: blur(24px) saturate(1.5);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.6);
-}
-
-input,
-textarea,
-.markdown-preview {
+input, textarea, .markdown-preview {
   user-select: text;
 }
 
-/* Minimal markdown styling for preview */
-.markdown-preview h1 { font-size: 1.5rem; font-weight: 700; margin: 0.75rem 0 0.5rem; color: #f5f5f5; }
-.markdown-preview h2 { font-size: 1.25rem; font-weight: 600; margin: 0.75rem 0 0.5rem; color: #f5f5f5; }
-.markdown-preview h3 { font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0; color: #e5e5e5; }
+/* ── Overlay Window ── */
+
+.overlay-root {
+  background: var(--overlay-bg);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  border-radius: 12px;
+  border: 1px solid var(--overlay-border);
+  box-shadow: var(--overlay-shadow);
+  transform: translateZ(0);
+  animation: backdrop-keepalive 1s steps(2) infinite;
+}
+
+@keyframes backdrop-keepalive {
+  from { opacity: 0.998; }
+  to { opacity: 1; }
+}
+
+/* ── Settings Window ── */
+
+.settings-root {
+  background: var(--bg-secondary);
+}
+
+/* ── Markdown Preview ── */
+
+.markdown-preview h1 { font-size: 1.5rem; font-weight: 700; margin: 0.75rem 0 0.5rem; color: var(--md-heading); }
+.markdown-preview h2 { font-size: 1.25rem; font-weight: 600; margin: 0.75rem 0 0.5rem; color: var(--md-heading); }
+.markdown-preview h3 { font-size: 1.1rem; font-weight: 600; margin: 0.5rem 0; color: var(--md-heading); }
 .markdown-preview h4,
 .markdown-preview h5,
-.markdown-preview h6 { font-weight: 600; margin: 0.5rem 0; color: #e5e5e5; }
-.markdown-preview p { margin: 0.5rem 0; line-height: 1.5; color: #d4d4d4; }
+.markdown-preview h6 { font-weight: 600; margin: 0.5rem 0; color: var(--md-heading); }
+.markdown-preview p { margin: 0.5rem 0; line-height: 1.5; color: var(--md-text); }
 .markdown-preview ul,
-.markdown-preview ol { margin: 0.5rem 0; padding-left: 1.5rem; color: #d4d4d4; }
+.markdown-preview ol { margin: 0.5rem 0; padding-left: 1.5rem; color: var(--md-text); }
 .markdown-preview li { margin: 0.25rem 0; }
-.markdown-preview a { color: #60a5fa; text-decoration: underline; }
+.markdown-preview a { color: var(--md-link); text-decoration: underline; }
 .markdown-preview code {
-  background: #262626;
+  background: var(--md-code-bg);
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
   font-size: 0.9em;
-  color: #fbbf24;
+  color: var(--md-code-text);
 }
 .markdown-preview pre {
-  background: #171717;
+  background: var(--md-pre-bg);
   padding: 0.75rem;
   border-radius: 4px;
   overflow-x: auto;
@@ -63,16 +159,16 @@ textarea,
 .markdown-preview pre code {
   background: transparent;
   padding: 0;
-  color: #d4d4d4;
+  color: var(--md-text);
 }
 .markdown-preview blockquote {
-  border-left: 3px solid #525252;
+  border-left: 3px solid var(--md-border);
   padding-left: 0.75rem;
   margin: 0.5rem 0;
-  color: #a3a3a3;
+  color: var(--md-blockquote);
   font-style: italic;
 }
-.markdown-preview hr { border: none; border-top: 1px solid #404040; margin: 1rem 0; }
+.markdown-preview hr { border: none; border-top: 1px solid var(--md-border); margin: 1rem 0; }
 .markdown-preview table {
   border-collapse: collapse;
   margin: 0.5rem 0;
@@ -80,8 +176,8 @@ textarea,
 }
 .markdown-preview th,
 .markdown-preview td {
-  border: 1px solid #404040;
+  border: 1px solid var(--md-border);
   padding: 0.3rem 0.6rem;
 }
-.markdown-preview th { background: #262626; }
+.markdown-preview th { background: var(--md-th-bg); }
 .markdown-preview img { max-width: 100%; border-radius: 4px; }

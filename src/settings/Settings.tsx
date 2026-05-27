@@ -16,8 +16,12 @@ import {
   Check,
   Brain,
   Loader2,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
-import type { DoctorReport, LicenseState } from "../types";
+import { useTheme } from "../hooks/useTheme";
+import type { DoctorReport, LicenseState, ThemePreference } from "../types";
 
 export function Settings() {
   const [report, setReport] = useState<DoctorReport | null>(null);
@@ -57,24 +61,25 @@ export function Settings() {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center settings-root text-neutral-200">
-        <Loader2 size={20} className="animate-spin text-neutral-500" />
+      <div className="h-screen flex items-center justify-center settings-root" style={{ color: "var(--text-primary)" }}>
+        <Loader2 size={20} className="animate-spin" style={{ color: "var(--text-tertiary)" }} />
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col settings-root text-neutral-200">
-      <header className="px-6 py-4 border-b border-neutral-800 shrink-0">
+    <div className="h-screen flex flex-col settings-root" style={{ color: "var(--text-primary)" }}>
+      <header className="px-6 py-4 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
         <h1 className="text-lg font-semibold">Settings</h1>
       </header>
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
         {error && (
-          <div className="text-sm text-red-400 bg-red-950/30 px-3 py-2 rounded">
+          <div className="text-sm px-3 py-2 rounded" style={{ color: "var(--error)", background: "var(--bg-tertiary)" }}>
             {error}
           </div>
         )}
         <ScanPathsSection report={report} onRefresh={loadReport} />
+        <ThemeSection />
         <SearchHotkeySection />
         <LaunchAtLoginSection />
         <SemanticSearchSection />
@@ -100,7 +105,7 @@ function Section({
     <section>
       <div className="flex items-center gap-2 mb-3">
         {icon}
-        <h2 className="text-sm font-medium text-neutral-300">{title}</h2>
+        <h2 className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{title}</h2>
       </div>
       <div className="pl-6">{children}</div>
     </section>
@@ -141,17 +146,19 @@ function ScanPathsSection({
 
   return (
     <Section
-      icon={<FolderOpen size={16} className="text-blue-400" />}
+      icon={<FolderOpen size={16} style={{ color: "var(--icon-folder)" }} />}
       title="Scan Paths"
     >
       <div className="space-y-1.5">
         {report?.scan_paths.map((sp) => (
           <div
             key={sp.path}
-            className="flex items-center justify-between gap-2 text-sm bg-neutral-900 px-3 py-2 rounded"
+            className="flex items-center justify-between gap-2 text-sm px-3 py-2 rounded"
+            style={{ background: "var(--bg-tertiary)" }}
           >
             <span
-              className={`truncate ${sp.exists ? "text-neutral-300" : "text-red-400"}`}
+              className="truncate"
+              style={{ color: sp.exists ? "var(--text-primary)" : "var(--error)" }}
             >
               {sp.path}
               {!sp.exists && " (missing)"}
@@ -159,7 +166,8 @@ function ScanPathsSection({
             <button
               onClick={() => handleRemovePath(sp.path)}
               disabled={removing === sp.path}
-              className="text-neutral-600 hover:text-red-400 transition-colors shrink-0"
+              className="transition-colors shrink-0"
+              style={{ color: "var(--text-tertiary)" }}
             >
               {removing === sp.path ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -172,10 +180,45 @@ function ScanPathsSection({
       </div>
       <button
         onClick={handleAddPath}
-        className="mt-2 flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+        className="mt-2 flex items-center gap-1.5 text-xs transition-colors"
+        style={{ color: "var(--accent)" }}
       >
         <Plus size={12} /> Add folder
       </button>
+    </Section>
+  );
+}
+
+function ThemeSection() {
+  const { preference, setPreference } = useTheme();
+
+  const options: { value: ThemePreference; label: string; icon: React.ReactNode }[] = [
+    { value: "light", label: "Light", icon: <Sun size={14} /> },
+    { value: "dark", label: "Dark", icon: <Moon size={14} /> },
+    { value: "system", label: "System", icon: <Monitor size={14} /> },
+  ];
+
+  return (
+    <Section
+      icon={<Sun size={16} style={{ color: "var(--warning)" }} />}
+      title="Appearance"
+    >
+      <div className="flex gap-1 rounded-lg p-0.5" style={{ background: "var(--bg-tertiary)" }}>
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => setPreference(opt.value)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+            style={{
+              background: preference === opt.value ? "var(--accent)" : "transparent",
+              color: preference === opt.value ? "var(--accent-text)" : "var(--text-secondary)",
+            }}
+          >
+            {opt.icon}
+            {opt.label}
+          </button>
+        ))}
+      </div>
     </Section>
   );
 }
@@ -185,14 +228,21 @@ function SearchHotkeySection() {
     typeof navigator !== "undefined" && navigator.platform.includes("Mac");
   return (
     <Section
-      icon={<Keyboard size={16} className="text-yellow-400" />}
+      icon={<Keyboard size={16} style={{ color: "var(--warning)" }} />}
       title="Search Hotkey"
     >
-      <div className="text-sm text-neutral-400">
-        <kbd className="px-2 py-0.5 bg-neutral-800 border border-neutral-700 rounded text-neutral-300 text-xs">
+      <div className="text-sm" style={{ color: "var(--text-secondary)" }}>
+        <kbd
+          className="px-2 py-0.5 rounded text-xs"
+          style={{
+            background: "var(--kbd-bg)",
+            border: "1px solid var(--kbd-border)",
+            color: "var(--text-primary)",
+          }}
+        >
           {isMac ? "Cmd+Shift+F" : "Ctrl+Shift+F"}
         </kbd>
-        <span className="ml-2 text-neutral-600 text-xs">
+        <span className="ml-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
           Customization coming in a future update
         </span>
       </div>
@@ -227,15 +277,17 @@ function LaunchAtLoginSection() {
 
   return (
     <Section
-      icon={<Power size={16} className="text-green-400" />}
+      icon={<Power size={16} style={{ color: "var(--success)" }} />}
       title="Launch at Login"
     >
       <button
         onClick={toggle}
-        className={`relative w-10 h-5 rounded-full transition-colors ${enabled ? "bg-blue-600" : "bg-neutral-700"}`}
+        className="relative w-10 h-5 rounded-full transition-colors"
+        style={{ background: enabled ? "var(--accent)" : "var(--bg-tertiary)" }}
       >
         <span
-          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? "left-5.5" : "left-0.5"}`}
+          className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform"
+          style={{ left: enabled ? "22px" : "2px" }}
         />
       </button>
     </Section>
@@ -272,17 +324,13 @@ function SemanticSearchSection() {
 
   return (
     <Section
-      icon={<Brain size={16} className="text-purple-400" />}
+      icon={<Brain size={16} style={{ color: "var(--icon-image)" }} />}
       title="Semantic Search"
     >
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-neutral-500">OpenRouter API key:</span>
-          <span
-            className={
-              status === "configured" ? "text-green-400" : "text-neutral-500"
-            }
-          >
+          <span style={{ color: "var(--text-secondary)" }}>OpenRouter API key:</span>
+          <span style={{ color: status === "configured" ? "var(--success)" : "var(--text-tertiary)" }}>
             {status === "configured" ? "configured" : "not configured"}
           </span>
         </div>
@@ -293,12 +341,18 @@ function SemanticSearchSection() {
             onChange={(e) => setKeyInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSave()}
             placeholder="sk-or-..."
-            className="flex-1 px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded text-sm text-neutral-200 placeholder-neutral-600 outline-none focus:border-blue-500/50"
+            className="flex-1 px-2.5 py-1.5 rounded text-sm outline-none"
+            style={{
+              background: "var(--bg-tertiary)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+            }}
           />
           <button
             onClick={handleSave}
             disabled={saving || !keyInput.trim()}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 rounded text-xs font-medium transition-colors"
+            className="px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-40"
+            style={{ background: "var(--accent)", color: "var(--accent-text)" }}
           >
             {saved ? <Check size={14} /> : saving ? "..." : "Save"}
           </button>
@@ -307,7 +361,8 @@ function SemanticSearchSection() {
           href="https://openrouter.ai/keys"
           target="_blank"
           rel="noreferrer"
-          className="text-xs text-blue-400/70 hover:text-blue-400 transition-colors"
+          className="text-xs transition-colors"
+          style={{ color: "var(--accent)" }}
         >
           Get an API key at openrouter.ai
         </a>
@@ -336,46 +391,26 @@ function IndexStatusSection({
 
   const formatTime = (iso: string | null) => {
     if (!iso) return "never";
-    const d = new Date(iso);
-    return d.toLocaleString();
+    return new Date(iso).toLocaleString();
   };
 
   return (
     <Section
-      icon={<HardDrive size={16} className="text-cyan-400" />}
+      icon={<HardDrive size={16} style={{ color: "var(--accent)" }} />}
       title="Index Status"
     >
       <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
         <Stat label="Files indexed" value={db.files_indexed.toLocaleString()} />
-        <Stat
-          label="Content indexed"
-          value={db.content_indexed.toLocaleString()}
-        />
-        <Stat
-          label="OCR"
-          value={`${ocr.ocr_completed}/${ocr.total_images} images`}
-        />
-        <Stat
-          label="Semantic vectors"
-          value={
-            hnsw.index_exists
-              ? hnsw.vector_count.toLocaleString()
-              : "not built"
-          }
-        />
+        <Stat label="Content indexed" value={db.content_indexed.toLocaleString()} />
+        <Stat label="OCR" value={`${ocr.ocr_completed}/${ocr.total_images} images`} />
+        <Stat label="Semantic vectors" value={hnsw.index_exists ? hnsw.vector_count.toLocaleString() : "not built"} />
         <Stat label="DB size" value={formatBytes(db.size_bytes)} />
-        <Stat
-          label="Content index"
-          value={formatBytes(report.content_index.size_bytes)}
-        />
+        <Stat label="Content index" value={formatBytes(report.content_index.size_bytes)} />
         <Stat label="Last sync" value={formatTime(db.last_updated)} />
-        <Stat
-          label="Last full reindex"
-          value={formatTime(db.last_full_reindex)}
-        />
+        <Stat label="Last full reindex" value={formatTime(db.last_full_reindex)} />
       </div>
       {syncStatus && (
-        <div className="mt-2 text-xs text-neutral-500">
+        <div className="mt-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
           Sync: {syncStatus}
         </div>
       )}
@@ -386,8 +421,8 @@ function IndexStatusSection({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between">
-      <span className="text-neutral-500">{label}</span>
-      <span className="text-neutral-300">{value}</span>
+      <span style={{ color: "var(--text-secondary)" }}>{label}</span>
+      <span style={{ color: "var(--text-primary)" }}>{value}</span>
     </div>
   );
 }
@@ -415,35 +450,33 @@ function ReindexSection({ onRefresh }: { onRefresh: () => void }) {
 
   return (
     <Section
-      icon={<RefreshCw size={16} className="text-orange-400" />}
+      icon={<RefreshCw size={16} style={{ color: "var(--warning)" }} />}
       title="Reindex"
     >
       <div className="flex items-center gap-3">
         <button
           onClick={handleReindex}
           disabled={running}
-          className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
-            confirmed
-              ? "bg-red-600 hover:bg-red-500"
-              : "bg-neutral-800 hover:bg-neutral-700 border border-neutral-700"
-          } disabled:opacity-50`}
+          className="px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: confirmed ? "var(--error)" : "var(--bg-tertiary)",
+            color: confirmed ? "var(--accent-text)" : "var(--text-primary)",
+            border: confirmed ? "none" : "1px solid var(--border)",
+          }}
         >
-          {running
-            ? "Rebuilding..."
-            : confirmed
-              ? "Confirm rebuild"
-              : "Rebuild Index"}
+          {running ? "Rebuilding..." : confirmed ? "Confirm rebuild" : "Rebuild Index"}
         </button>
         {confirmed && (
           <button
             onClick={() => setConfirmed(false)}
-            className="text-xs text-neutral-500 hover:text-neutral-300"
+            className="text-xs"
+            style={{ color: "var(--text-secondary)" }}
           >
             Cancel
           </button>
         )}
       </div>
-      <p className="mt-1.5 text-xs text-neutral-600">
+      <p className="mt-1.5 text-xs" style={{ color: "var(--text-tertiary)" }}>
         Deletes and rebuilds the entire index. May take several minutes.
       </p>
     </Section>
@@ -479,31 +512,26 @@ function LicenseSection() {
     }
   };
 
-  const statusLabel = {
-    active: "Active",
-    trial: "Trial",
-    trial_expired: "Trial expired",
-    invalid: "Invalid",
-    unknown: "Unknown",
-  }[status ?? "unknown"];
-
-  const statusColor = {
-    active: "text-green-400",
-    trial: "text-amber-400",
-    trial_expired: "text-red-400",
-    invalid: "text-red-400",
-    unknown: "text-neutral-500",
-  }[status ?? "unknown"];
+  const statusLabel: Record<string, string> = {
+    active: "Active", trial: "Trial", trial_expired: "Trial expired",
+    invalid: "Invalid", unknown: "Unknown",
+  };
+  const statusColor: Record<string, string> = {
+    active: "var(--success)", trial: "var(--warning)", trial_expired: "var(--error)",
+    invalid: "var(--error)", unknown: "var(--text-tertiary)",
+  };
 
   return (
     <Section
-      icon={<Shield size={16} className="text-emerald-400" />}
+      icon={<Shield size={16} style={{ color: "var(--success)" }} />}
       title="License"
     >
       <div className="space-y-2">
         <div className="text-sm">
-          <span className="text-neutral-500">Status: </span>
-          <span className={statusColor}>{statusLabel}</span>
+          <span style={{ color: "var(--text-secondary)" }}>Status: </span>
+          <span style={{ color: statusColor[status ?? "unknown"] }}>
+            {statusLabel[status ?? "unknown"]}
+          </span>
         </div>
         {status !== "active" && (
           <>
@@ -514,22 +542,29 @@ function LicenseSection() {
                 onChange={(e) => setKeyInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleActivate()}
                 placeholder="Enter license key"
-                className="flex-1 px-2.5 py-1.5 bg-neutral-900 border border-neutral-700 rounded text-sm text-neutral-200 placeholder-neutral-600 outline-none focus:border-blue-500/50"
+                className="flex-1 px-2.5 py-1.5 rounded text-sm outline-none"
+                style={{
+                  background: "var(--bg-tertiary)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-primary)",
+                }}
               />
               <button
                 onClick={handleActivate}
                 disabled={activating || !keyInput.trim()}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 rounded text-xs font-medium transition-colors"
+                className="px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-40"
+                style={{ background: "var(--accent)", color: "var(--accent-text)" }}
               >
                 {activating ? "..." : "Activate"}
               </button>
             </div>
-            {error && <p className="text-xs text-red-400">{error}</p>}
+            {error && <p className="text-xs" style={{ color: "var(--error)" }}>{error}</p>}
             <a
               href="https://polar.sh/findr"
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-blue-400/70 hover:text-blue-400 transition-colors"
+              className="text-xs transition-colors"
+              style={{ color: "var(--accent)" }}
             >
               Purchase a license
             </a>
@@ -546,29 +581,27 @@ function AboutSection({ report }: { report: DoctorReport | null }) {
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
-    invoke<string>("get_findr_version")
-      .then(setFindrVersion)
-      .catch(() => {});
+    invoke<string>("get_findr_version").then(setFindrVersion).catch(() => {});
   }, []);
 
   return (
     <Section
-      icon={<Info size={16} className="text-neutral-400" />}
+      icon={<Info size={16} style={{ color: "var(--text-secondary)" }} />}
       title="About"
     >
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">
-          <span className="text-neutral-500">Desktop version</span>
-          <span className="text-neutral-300">{appVersion || "..."}</span>
+          <span style={{ color: "var(--text-secondary)" }}>Desktop version</span>
+          <span style={{ color: "var(--text-primary)" }}>{appVersion || "..."}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-neutral-500">findr CLI version</span>
-          <span className="text-neutral-300">{findrVersion || "..."}</span>
+          <span style={{ color: "var(--text-secondary)" }}>findr CLI version</span>
+          <span style={{ color: "var(--text-primary)" }}>{findrVersion || "..."}</span>
         </div>
         {report && (
           <div className="flex justify-between">
-            <span className="text-neutral-500">Platform</span>
-            <span className="text-neutral-300">
+            <span style={{ color: "var(--text-secondary)" }}>Platform</span>
+            <span style={{ color: "var(--text-primary)" }}>
               {report.os.os} ({report.os.arch})
             </span>
           </div>
@@ -578,7 +611,8 @@ function AboutSection({ report }: { report: DoctorReport | null }) {
             href="https://github.com/Roderick111/findr-app"
             target="_blank"
             rel="noreferrer"
-            className="text-xs text-blue-400/70 hover:text-blue-400 transition-colors"
+            className="text-xs transition-colors"
+            style={{ color: "var(--accent)" }}
           >
             GitHub
           </a>

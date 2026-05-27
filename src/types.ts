@@ -88,3 +88,5 @@ export interface ScanPath {
   path: string;
   exists: boolean;
 }
+
+export type ThemePreference = "light" | "dark" | "system";

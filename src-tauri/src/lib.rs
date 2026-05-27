@@ -53,7 +53,6 @@ pub fn run() {
             Modifiers::CONTROL | Modifiers::SHIFT
         };
         let toggle_shortcut = Shortcut::new(Some(mods), Code::KeyF);
-
         builder = builder.plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, event| {
@@ -143,6 +142,14 @@ pub fn run() {
 
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if window.label() == "settings" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::search,
             commands::get_recent_files,
@@ -154,6 +161,7 @@ pub fn run() {
             commands::activate_license,
             commands::start_trial,
             commands::get_trial_days_remaining,
+            commands::move_to_trash,
             commands::open_settings,
             commands::get_doctor_report,
             commands::add_scan_path,
@@ -164,6 +172,8 @@ pub fn run() {
             commands::get_api_key_status,
             commands::get_autostart_status,
             commands::set_autostart,
+            commands::get_theme,
+            commands::set_theme,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

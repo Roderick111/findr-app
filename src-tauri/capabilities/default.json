@@ -13,6 +13,10 @@
     "core:app:allow-version",
     "shell:allow-open",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "/**" }]
+    },
     "opener:allow-reveal-item-in-dir",
     "clipboard-manager:allow-write-text",
     "global-shortcut:allow-register",
@@ -30,7 +34,7 @@
     "autostart:allow-is-enabled",
     {
       "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "**" }]
+      "allow": [{ "path": "/**" }]
     },
     {
       "identifier": "shell:allow-execute",

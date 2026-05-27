@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openInOS } from "@tauri-apps/plugin-shell";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { File, Folder, FileText, FileImage, Code, Settings } from "lucide-react";
 import { useDebounced } from "./hooks/useDebounced";
 import { Preview } from "./components/Preview";
+import { ActionsPanel } from "./components/ActionsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
 import type { SearchResponse, SearchResult } from "./types";
 
@@ -15,15 +15,15 @@ const RECENT_LIMIT = 20;
 const DEBOUNCE_MS = 200;
 
 function iconFor(r: SearchResult) {
-  if (r.is_dir) return <Folder size={16} className="text-blue-400 shrink-0" />;
+  if (r.is_dir) return <Folder size={16} style={{ color: "var(--icon-folder)" }} className="shrink-0" />;
   const ext = r.file_type?.toLowerCase() ?? "";
   if (["png", "jpg", "jpeg", "heic", "gif", "webp", "svg"].includes(ext))
-    return <FileImage size={16} className="text-purple-400 shrink-0" />;
+    return <FileImage size={16} style={{ color: "var(--icon-image)" }} className="shrink-0" />;
   if (["md", "txt", "pdf", "docx", "csv"].includes(ext))
-    return <FileText size={16} className="text-green-400 shrink-0" />;
+    return <FileText size={16} style={{ color: "var(--icon-doc)" }} className="shrink-0" />;
   if (["rs", "ts", "tsx", "js", "py", "go", "swift", "java"].includes(ext))
-    return <Code size={16} className="text-orange-400 shrink-0" />;
-  return <File size={16} className="text-gray-400 shrink-0" />;
+    return <Code size={16} style={{ color: "var(--icon-code)" }} className="shrink-0" />;
+  return <File size={16} style={{ color: "var(--icon-default)" }} className="shrink-0" />;
 }
 
 export default function App() {
@@ -37,6 +37,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
+  const [showActions, setShowActions] = useState(false);
   const requestIdRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,7 +57,7 @@ export default function App() {
 
   const openFile = useCallback(async (r: SearchResult) => {
     try {
-      await openInOS(r.path);
+      await openPath(r.path);
       trackAction(r.path, "open");
       hideOverlay();
     } catch (e) {
@@ -87,14 +88,29 @@ export default function App() {
     flashToast("Filename copied");
   }, [trackAction, flashToast]);
 
-  // Reset state and refocus input when window becomes visible
+  const moveToTrash = useCallback(async (r: SearchResult) => {
+    try {
+      await invoke("move_to_trash", { path: r.path });
+      trackAction(r.path, "open");
+      flashToast("Moved to Trash");
+      setResults((prev) => prev.filter((item) => item.path !== r.path));
+      setSelected((s) => Math.min(s, results.length - 2));
+    } catch (e) {
+      setError(`failed to trash: ${e}`);
+    }
+  }, [trackAction, flashToast, results.length]);
+
+  const openSettings = useCallback(() => {
+    invoke("open_settings").catch(() => {});
+  }, []);
+
   useEffect(() => {
     const win = getCurrentWindow();
     const unlisten = win.onFocusChanged(({ payload: focused }) => {
       if (focused) {
         setQuery("");
         setSelected(0);
-        // Slight delay so input is mounted/visible
+        setShowActions(false);
         setTimeout(() => inputRef.current?.focus(), 50);
       }
     });
@@ -138,6 +154,8 @@ export default function App() {
   }, [debounced]);
 
   useEffect(() => {
+    if (showActions) return;
+
     const handler = (e: KeyboardEvent) => {
       const r = results[selected];
       const meta = e.metaKey || e.ctrlKey;
@@ -147,21 +165,28 @@ export default function App() {
         hideOverlay();
         return;
       }
+      if (e.key === "Tab" || (meta && e.key === "k")) {
+        e.preventDefault();
+        if (r) setShowActions(true);
+        return;
+      }
+      if (meta && e.key === ",") {
+        e.preventDefault();
+        openSettings();
+        return;
+      }
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setSelected((s) => Math.min(s + 1, results.length - 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setSelected((s) => Math.max(s - 1, 0));
+      } else if (meta && e.key === "Enter" && r) {
+        e.preventDefault();
+        revealInFinder(r);
       } else if (e.key === "Enter" && r) {
         e.preventDefault();
         openFile(r);
-      } else if (meta && e.key === "o" && r) {
-        e.preventDefault();
-        openFile(r);
-      } else if (meta && e.key === "r" && r) {
-        e.preventDefault();
-        revealInFinder(r);
       } else if (meta && e.shiftKey && e.key.toLowerCase() === "c" && r) {
         e.preventDefault();
         copyFilename(r);
@@ -170,11 +195,14 @@ export default function App() {
         if (sel && sel.length > 0) return;
         e.preventDefault();
         copyPath(r);
+      } else if (meta && e.key === "Backspace" && r && document.activeElement !== inputRef.current) {
+        e.preventDefault();
+        moveToTrash(r);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [results, selected, openFile, revealInFinder, copyPath, copyFilename, hideOverlay]);
+  }, [results, selected, showActions, openFile, revealInFinder, copyPath, copyFilename, moveToTrash, hideOverlay, openSettings]);
 
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLDivElement>(
@@ -184,15 +212,15 @@ export default function App() {
   }, [selected]);
 
   const statusLine = useMemo(() => {
-    if (error) return <span className="text-red-400">{error}</span>;
-    if (loading) return <span className="text-gray-500">searching…</span>;
-    if (totalResults === null) return <span className="text-gray-600">loading…</span>;
+    if (error) return <span style={{ color: "var(--error)" }}>{error}</span>;
+    if (loading) return <span style={{ color: "var(--text-tertiary)" }}>searching…</span>;
+    if (totalResults === null) return <span style={{ color: "var(--text-tertiary)" }}>loading…</span>;
     const modeLabel =
       mode === "recent"
         ? "recent"
         : `${totalResults} result${totalResults === 1 ? "" : "s"}`;
     return (
-      <span className="text-gray-500">
+      <span style={{ color: "var(--text-secondary)" }}>
         {modeLabel} · {elapsedMs}ms
       </span>
     );
@@ -201,13 +229,11 @@ export default function App() {
   const selectedResult = results[selected] ?? null;
 
   return (
-    <div className="h-screen flex flex-col text-neutral-200 relative overlay-root">
-      {/* Drag region (top 8px of window) */}
+    <div className="h-screen flex flex-col relative overlay-root" style={{ color: "var(--text-primary)" }}>
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-2 z-50" />
       <UpdateBanner />
 
-      {/* Search bar */}
-      <div className="px-4 pt-3 pb-2 border-b border-white/5">
+      <div className="px-4 pt-3 pb-2" style={{ borderBottom: "1px solid var(--border)" }}>
         <input
           ref={inputRef}
           autoFocus
@@ -215,59 +241,82 @@ export default function App() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search files…"
-          className="w-full bg-transparent text-xl outline-none placeholder-neutral-600"
+          className="w-full bg-transparent text-xl outline-none"
+          style={{ color: "var(--text-primary)", caretColor: "var(--accent)" }}
         />
       </div>
 
-      {/* Split: list (left) + preview (right) */}
       <div className="flex-1 flex min-h-0">
-        <div className="w-[42%] min-w-[280px] flex flex-col border-r border-white/5">
+        <div className="w-[42%] min-w-[280px] flex flex-col" style={{ borderRight: "1px solid var(--border)" }}>
           <div ref={listRef} className="flex-1 overflow-y-auto">
             {results.map((r, i) => (
               <div
                 key={`${r.path}-${i}`}
                 data-idx={i}
-                className={`px-4 py-2 flex gap-3 items-center cursor-default ${
-                  i === selected ? "bg-white/10" : "hover:bg-white/5"
-                }`}
+                className="px-4 py-2 flex gap-3 items-center cursor-default"
+                style={{
+                  background: i === selected ? "var(--bg-active)" : "transparent",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background =
+                    i === selected ? "var(--bg-active)" : "var(--bg-hover)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background =
+                    i === selected ? "var(--bg-active)" : "transparent";
+                }}
                 onClick={() => setSelected(i)}
                 onDoubleClick={() => openFile(r)}
               >
                 {iconFor(r)}
                 <div className="flex-1 min-w-0">
-                  <div className="truncate text-sm">{r.filename}</div>
-                  <div className="truncate text-xs text-neutral-500">{r.path}</div>
+                  <div className="truncate text-sm" style={{ color: "var(--text-primary)" }}>{r.filename}</div>
+                  <div className="truncate text-xs" style={{ color: "var(--text-secondary)" }}>{r.path}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 relative">
           <Preview result={selectedResult} />
+          {showActions && selectedResult && (
+            <ActionsPanel
+              result={selectedResult}
+              onOpen={() => openFile(selectedResult)}
+              onReveal={() => revealInFinder(selectedResult)}
+              onCopyPath={() => copyPath(selectedResult)}
+              onCopyFilename={() => copyFilename(selectedResult)}
+              onTrash={() => moveToTrash(selectedResult)}
+              onSettings={openSettings}
+              onClose={() => setShowActions(false)}
+            />
+          )}
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="px-4 py-1.5 border-t border-white/5 text-xs flex justify-between items-center">
+      <div className="px-4 py-1.5 text-xs flex justify-between items-center" style={{ borderTop: "1px solid var(--border)" }}>
         <div className="flex items-center gap-2">
           {statusLine}
           <button
-            onClick={() => invoke("open_settings").catch(() => {})}
-            className="text-neutral-600 hover:text-neutral-400 transition-colors"
+            onClick={openSettings}
+            className="transition-colors"
+            style={{ color: "var(--text-tertiary)" }}
             title="Settings"
           >
             <Settings size={13} />
           </button>
         </div>
-        <span className="text-neutral-600">
-          <Kbd>↵</Kbd> open · <Kbd>⌘R</Kbd> reveal · <Kbd>⌘C</Kbd> path · <Kbd>⌘⇧C</Kbd> name · <Kbd>esc</Kbd> hide
+        <span style={{ color: "var(--text-secondary)" }}>
+          <Kbd>↵</Kbd> open · <Kbd>⌘K</Kbd> actions
         </span>
       </div>
 
-      {/* Toast */}
       {toast && (
-        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-neutral-800/90 text-neutral-100 text-xs px-3 py-1.5 rounded shadow-lg backdrop-blur">
+        <div
+          className="absolute bottom-10 left-1/2 -translate-x-1/2 text-xs px-3 py-1.5 rounded shadow-lg backdrop-blur"
+          style={{ background: "var(--toast-bg)", color: "var(--toast-text)" }}
+        >
           {toast}
         </div>
       )}
@@ -277,7 +326,14 @@ export default function App() {
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-block px-1 mx-0.5 text-[10px] bg-white/10 border border-white/10 rounded text-neutral-400 align-middle">
+    <span
+      className="inline-block px-1 mx-0.5 text-[10px] rounded align-middle"
+      style={{
+        background: "var(--kbd-bg)",
+        border: "1px solid var(--kbd-border)",
+        color: "var(--text-secondary)",
+      }}
+    >
       {children}
     </span>
   );

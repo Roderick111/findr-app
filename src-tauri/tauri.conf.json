@@ -51,11 +51,20 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": {
+          "allow": ["/**"],
+          "requireLiteralLeadingDot": false
+        }
       }
     }
   },
   "plugins": {
+    "fs": {
+      "requireLiteralLeadingDot": false
+    },
+    "opener": {
+      "requireLiteralLeadingDot": false
+    },
     "updater": {
       "endpoints": [
         "https://github.com/Roderick111/findr-app/releases/latest/download/latest.json"

@@ -15,7 +15,7 @@ import {
 import type { SearchResult } from "../types";
 
 const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "heic", "bmp", "svg"];
-const TEXT_EXTS = ["txt", "log", "csv", "json", "yml", "yaml", "xml", "toml", "ini", "env"];
+const TEXT_EXTS = ["txt", "log", "csv", "json", "jsonl", "yml", "yaml", "xml", "toml", "ini", "env"];
 const MD_EXTS = ["md", "markdown", "mdx"];
 const CODE_EXTS = [
   "rs", "ts", "tsx", "js", "jsx", "py", "go", "swift", "java", "c", "cpp", "h", "hpp",
@@ -29,16 +29,16 @@ const ARCHIVE_EXTS = ["zip", "tar", "gz", "rar", "7z"];
 const MAX_PREVIEW_BYTES = 50_000;
 
 function bigIconFor(r: SearchResult) {
-  if (r.is_dir) return <Folder size={96} className="text-blue-400" />;
+  if (r.is_dir) return <Folder size={96} style={{ color: "var(--icon-folder)" }} />;
   const ext = r.file_type?.toLowerCase() ?? "";
-  if (IMAGE_EXTS.includes(ext)) return <FileImage size={96} className="text-purple-400" />;
-  if (VIDEO_EXTS.includes(ext)) return <FileVideo size={96} className="text-pink-400" />;
-  if (AUDIO_EXTS.includes(ext)) return <FileAudio size={96} className="text-yellow-400" />;
-  if (ARCHIVE_EXTS.includes(ext)) return <FileArchive size={96} className="text-amber-400" />;
+  if (IMAGE_EXTS.includes(ext)) return <FileImage size={96} style={{ color: "var(--icon-image)" }} />;
+  if (VIDEO_EXTS.includes(ext)) return <FileVideo size={96} style={{ color: "var(--icon-image)" }} />;
+  if (AUDIO_EXTS.includes(ext)) return <FileAudio size={96} style={{ color: "var(--warning)" }} />;
+  if (ARCHIVE_EXTS.includes(ext)) return <FileArchive size={96} style={{ color: "var(--warning)" }} />;
   if (TEXT_EXTS.includes(ext) || MD_EXTS.includes(ext) || ext === "pdf" || ext === "docx")
-    return <FileText size={96} className="text-green-400" />;
-  if (CODE_EXTS.includes(ext)) return <Code size={96} className="text-orange-400" />;
-  return <File size={96} className="text-gray-400" />;
+    return <FileText size={96} style={{ color: "var(--icon-doc)" }} />;
+  if (CODE_EXTS.includes(ext)) return <Code size={96} style={{ color: "var(--icon-code)" }} />;
+  return <File size={96} style={{ color: "var(--icon-default)" }} />;
 }
 
 function formatSize(bytes: number | null): string {
@@ -100,7 +100,6 @@ export function Preview({ result }: { result: SearchResult | null }) {
     readTextFile(result.path)
       .then((content) => {
         if (cancelled) return;
-        // Truncate to avoid melting the UI on huge files
         if (content.length > MAX_PREVIEW_BYTES) {
           setTextContent(content.slice(0, MAX_PREVIEW_BYTES) + "\n\n… (truncated)");
         } else {
@@ -117,7 +116,7 @@ export function Preview({ result }: { result: SearchResult | null }) {
 
   if (!result) {
     return (
-      <div className="h-full flex items-center justify-center text-neutral-700 text-sm">
+      <div className="h-full flex items-center justify-center text-sm" style={{ color: "var(--text-tertiary)" }}>
         Select a file to preview
       </div>
     );
@@ -125,8 +124,7 @@ export function Preview({ result }: { result: SearchResult | null }) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Preview area */}
-      <div className="flex-1 min-h-0 overflow-hidden bg-neutral-900/40">
+      <div className="flex-1 min-h-0 overflow-hidden" style={{ background: "var(--preview-bg)" }}>
         {kind === "image" && (
           <div className="h-full flex items-center justify-center p-4">
             <img
@@ -146,7 +144,7 @@ export function Preview({ result }: { result: SearchResult | null }) {
         )}
 
         {kind === "markdown" && textContent !== null && (
-          <div className="h-full overflow-y-auto p-5 text-sm prose-invert prose-sm max-w-none">
+          <div className="h-full overflow-y-auto p-5 text-sm max-w-none">
             <div className="markdown-preview">
               <ReactMarkdown>{textContent}</ReactMarkdown>
             </div>
@@ -154,20 +152,23 @@ export function Preview({ result }: { result: SearchResult | null }) {
         )}
 
         {(kind === "text" || kind === "code") && textContent !== null && (
-          <pre className="h-full overflow-auto p-4 text-xs font-mono text-neutral-300 whitespace-pre">
+          <pre
+            className="h-full overflow-auto p-4 text-xs font-mono whitespace-pre"
+            style={{ color: "var(--text-primary)" }}
+          >
             {textContent}
           </pre>
         )}
 
         {(kind === "text" || kind === "code" || kind === "markdown") &&
           textContent === null && !textError && (
-            <div className="h-full flex items-center justify-center text-xs text-neutral-600">
+            <div className="h-full flex items-center justify-center text-xs" style={{ color: "var(--text-tertiary)" }}>
               loading…
             </div>
           )}
 
         {textError && (
-          <div className="h-full flex items-center justify-center p-4 text-xs text-red-400 text-center">
+          <div className="h-full flex items-center justify-center p-4 text-xs text-center" style={{ color: "var(--error)" }}>
             failed to read: {textError}
           </div>
         )}
@@ -176,11 +177,11 @@ export function Preview({ result }: { result: SearchResult | null }) {
           <div className="h-full flex items-center justify-center p-4">
             <div className="flex flex-col items-center gap-4 text-center">
               {bigIconFor(result)}
-              <div className="text-sm text-neutral-300 max-w-[90%] truncate">
+              <div className="text-sm max-w-[90%] truncate" style={{ color: "var(--text-primary)" }}>
                 {result.filename}
               </div>
               {result.content_snippet && (
-                <div className="text-xs text-neutral-500 italic max-w-[90%] line-clamp-6 whitespace-pre-wrap">
+                <div className="text-xs italic max-w-[90%] line-clamp-6 whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>
                   {result.content_snippet}
                 </div>
               )}
@@ -189,8 +190,7 @@ export function Preview({ result }: { result: SearchResult | null }) {
         )}
       </div>
 
-      {/* Metadata */}
-      <div className="border-t border-neutral-800 px-4 py-3 text-xs space-y-1.5 shrink-0">
+      <div className="px-4 py-3 text-xs space-y-1.5 shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
         <Row label="Path" value={result.path} mono />
         <Row
           label="Type"
@@ -209,8 +209,12 @@ export function Preview({ result }: { result: SearchResult | null }) {
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="grid grid-cols-[80px_1fr] gap-2">
-      <span className="text-neutral-600">{label}</span>
-      <span className={`text-neutral-300 truncate ${mono ? "font-mono text-[11px]" : ""}`} title={value}>
+      <span style={{ color: "var(--text-tertiary)" }}>{label}</span>
+      <span
+        className={`truncate ${mono ? "font-mono text-[11px]" : ""}`}
+        style={{ color: "var(--text-primary)" }}
+        title={value}
+      >
         {value}
       </span>
     </div>

@@ -31,21 +31,26 @@ export function UpdateBanner() {
   if (!version || dismissed) return null;
 
   return (
-    <div className="absolute top-0 inset-x-0 z-50 flex items-center justify-between px-4 py-1.5 bg-blue-900/80 border-b border-blue-700/50 text-xs">
-      <span className="text-blue-200">
-        Update available: v{version}
-      </span>
+    <div
+      className="absolute top-0 inset-x-0 z-50 flex items-center justify-between px-4 py-1.5 text-xs"
+      style={{
+        background: "var(--accent)",
+        color: "var(--accent-text)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <span>Update available: v{version}</span>
       <div className="flex gap-3">
         <button
           onClick={handleUpdate}
           disabled={installing}
-          className="text-blue-100 hover:text-white font-medium"
+          className="font-medium opacity-90 hover:opacity-100"
         >
           {installing ? "Installing..." : "Update now"}
         </button>
         <button
           onClick={() => setDismissed(true)}
-          className="text-blue-400 hover:text-blue-200"
+          className="opacity-70 hover:opacity-100"
         >
           Later
         </button>
