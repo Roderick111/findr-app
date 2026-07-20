@@ -26,26 +26,6 @@ vi.mock("@tauri-apps/api/app", () => ({
   getVersion: vi.fn(() => Promise.resolve("0.1.0")),
 }));
 
-// Mock @tauri-apps/plugin-fs
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  readTextFile: vi.fn(),
-  open: vi.fn(() => Promise.resolve({
-    read: vi.fn(() => Promise.resolve(0)),
-    close: vi.fn(() => Promise.resolve()),
-  })),
-}));
-
-// Mock @tauri-apps/plugin-clipboard-manager
-vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
-  writeText: vi.fn(),
-}));
-
-// Mock @tauri-apps/plugin-opener
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openPath: vi.fn(),
-  revealItemInDir: vi.fn(),
-}));
-
 // Mock @tauri-apps/plugin-dialog
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
@@ -59,12 +39,4 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
 // Mock @tauri-apps/plugin-process
 vi.mock("@tauri-apps/plugin-process", () => ({
   relaunch: vi.fn(),
-}));
-
-// Mock @tauri-apps/plugin-store
-vi.mock("@tauri-apps/plugin-store", () => ({
-  Store: vi.fn(() => ({
-    get: vi.fn(),
-    set: vi.fn(),
-  })),
 }));

@@ -164,11 +164,16 @@ GitHub Actions workflow (`.github/workflows/release.yml`):
 - [x] Test suite — 135 tests (70 Rust + 65 vitest), shipped 2026-05-27
 - [x] First-run onboarding — auto-index home folder, shipped 2026-05-27
 - [x] App icon — cyan magnifying glass with search lines, shipped 2026-05-27
+- [x] Website — findr.beautiful-apps.com, single-page landing, AJTBD copy, free DMG download, shipped 2026-05-27
+- [x] Ad-hoc code signing — `APPLE_SIGNING_IDENTITY="-"`, "unidentified developer" instead of "damaged", shipped 2026-05-27
+- [x] DMG cleanup — `chflags hidden` on .VolumeIcon.icns via post-build fix-dmg.sh, shipped 2026-05-27
+- [x] Release profile — thin LTO, 16 codegen units, strip symbols (~40% faster builds), shipped 2026-05-27
+- [x] fs:allow-open — added to capabilities for file preview ACL, shipped 2026-05-27
 - [ ] Add `--wait 3` to mutating sidecar calls (add_path, rebuild, sync) for lock contention edge cases
 - [ ] Customizable hotkey (UI placeholder exists)
 - [ ] Better error UX when sidecar binary missing or crashes
 - [ ] Re-enable license gate with proper unknown→activation flow
-- [ ] Apple Developer cert for code signing + notarization
+- [ ] Apple Developer cert ($99/yr) for code signing + notarization — no free alternative
 
 ### Depends on Core
 - [x] Lock scope narrowing (shipped 2026-05-27)

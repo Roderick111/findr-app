@@ -364,7 +364,10 @@ mod tests {
         };
         let json = serde_json::to_value(&state).unwrap();
         // key must NOT appear in serialized output
-        assert!(json.get("key").is_none(), "key field must be skip_serializing");
+        assert!(
+            json.get("key").is_none(),
+            "key field must be skip_serializing"
+        );
         // other fields must be present
         assert_eq!(json["status"], "active");
         assert_eq!(json["activated_at"], "2026-01-01T00:00:00Z");

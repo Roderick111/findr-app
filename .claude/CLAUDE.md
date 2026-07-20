@@ -7,10 +7,27 @@ Tauri 2 + React 19 desktop app wrapping the findr CLI as a sidecar. All search/i
 ```bash
 bun install
 bun run tauri dev      # dev mode
-bun run tauri build    # release
+
+# Release build — ALWAYS use ad-hoc signing
+APPLE_SIGNING_IDENTITY="-" bun run tauri build
+
+# Post-build: hide .VolumeIcon.icns in DMG
+cd src-tauri && bash fix-dmg.sh
 ```
 
+**Code signing is mandatory.** Without `APPLE_SIGNING_IDENTITY="-"`, macOS shows "app is damaged" and refuses to open. With it, users get "unidentified developer" warning — right-click > Open works. Full notarization requires $99/yr Apple Developer cert (not set up yet).
+
+**Before building:** eject any mounted findr DMG volumes (`hdiutil detach /Volumes/findr`) or `bundle_dmg.sh` will fail.
+
 Dev sidecar binary is symlinked: `src-tauri/binaries/findr-aarch64-apple-darwin -> findr-app/target/release/findr`
+
+## Website
+
+```bash
+cd website && bash deploy.sh
+```
+
+Single-page site at https://findr.beautiful-apps.com/. Deploy script copies DMG from build output, rsyncs to server, rebuilds Docker container.
 
 ## Architecture Rules
 

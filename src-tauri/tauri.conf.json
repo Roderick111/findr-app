@@ -52,16 +52,13 @@
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": ["/**"],
+          "allow": [],
           "requireLiteralLeadingDot": false
         }
       }
     }
   },
   "plugins": {
-    "fs": {
-      "requireLiteralLeadingDot": false
-    },
     "opener": {
       "requireLiteralLeadingDot": false
     },
@@ -85,6 +82,22 @@
     "externalBin": [
       "binaries/findr",
       "binaries/findr-ocr"
-    ]
+    ],
+    "macOS": {
+      "dmg": {
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        },
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        }
+      }
+    }
   }
 }

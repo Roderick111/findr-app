@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { File, Folder, FileText, FileImage, Code, Settings } from "lucide-react";
 import { useDebounced } from "./hooks/useDebounced";
 import { Preview } from "./components/Preview";
@@ -86,7 +84,7 @@ export default function App() {
 
   const openFile = useCallback(async (r: SearchResult) => {
     try {
-      await openPath(r.path);
+      await invoke("open_result", { path: r.path });
       trackAction(r.path, "open");
       hideOverlay();
     } catch (e) {
@@ -96,7 +94,7 @@ export default function App() {
 
   const revealInFinder = useCallback(async (r: SearchResult) => {
     try {
-      await revealItemInDir(r.path);
+      await invoke("reveal_result", { path: r.path });
       trackAction(r.path, "finder");
       flashToast("Revealed in Finder");
       hideOverlay();
@@ -107,7 +105,7 @@ export default function App() {
 
   const copyPath = useCallback(async (r: SearchResult) => {
     try {
-      await writeText(r.path);
+      await invoke("copy_text", { text: r.path });
       trackAction(r.path, "copy");
       flashToast("Path copied");
     } catch (e) {
@@ -117,7 +115,7 @@ export default function App() {
 
   const copyFilename = useCallback(async (r: SearchResult) => {
     try {
-      await writeText(r.filename);
+      await invoke("copy_text", { text: r.filename });
       trackAction(r.path, "copy");
       flashToast("Filename copied");
     } catch (e) {
@@ -181,7 +179,6 @@ export default function App() {
       : invoke<SearchResponse>("search", {
           query: trimmed,
           limit: LIMIT,
-          noSemantic: true,
         });
 
     promise

@@ -17,6 +17,8 @@ export interface SearchResponse {
   elapsed_ms: number;
   total_results: number;
   results: SearchResult[];
+  error?: string;
+  hint?: string;
 }
 
 export type LicenseStatus =
@@ -87,6 +89,7 @@ export interface OsInfo {
 export interface ScanPath {
   path: string;
   exists: boolean;
+  custom: boolean;
 }
 
 export type ThemePreference = "light" | "dark" | "system";

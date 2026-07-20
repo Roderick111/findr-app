@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-fs";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import ReactMarkdown from "react-markdown";
 import {
   File,
@@ -18,7 +17,10 @@ import {
   formatSize, formatDate, previewKind,
 } from "../utils/format";
 
-const MAX_PREVIEW_BYTES = 50_000;
+interface PreviewText {
+  text: string;
+  truncated: boolean;
+}
 
 function bigIconFor(r: SearchResult) {
   if (r.is_dir) return <Folder size={96} style={{ color: "var(--icon-folder)" }} />;
@@ -51,20 +53,13 @@ export function Preview({ result }: { result: SearchResult | null }) {
 
     (async () => {
       try {
-        const file = await open(result.path, { read: true });
-        try {
-          const buf = new Uint8Array(MAX_PREVIEW_BYTES + 1);
-          const bytesRead = await file.read(buf);
-          if (cancelled) return;
-          const slice = bytesRead !== null ? buf.slice(0, Math.min(bytesRead, MAX_PREVIEW_BYTES)) : buf.slice(0, 0);
-          let text = new TextDecoder("utf-8", { fatal: false }).decode(slice);
-          if (bytesRead !== null && bytesRead > MAX_PREVIEW_BYTES) {
-            text += "\n\n… (truncated)";
-          }
-          setTextContent(text);
-        } finally {
-          await file.close();
+        const preview = await invoke<PreviewText>("read_preview_text", { path: result.path });
+        if (cancelled) return;
+        let text = preview.text;
+        if (preview.truncated) {
+          text += "\n\n… (truncated)";
         }
+        setTextContent(text);
       } catch (e) {
         if (cancelled) return;
         setTextError(String(e));

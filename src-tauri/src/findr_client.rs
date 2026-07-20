@@ -1,16 +1,31 @@
 use serde::{Deserialize, Serialize};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 use std::time::Duration;
-use tauri::AppHandle;
-use tauri_plugin_shell::{process::CommandEvent, ShellExt};
+use tauri::{AppHandle, Manager};
+use tauri_plugin_shell::{
+    process::{CommandChild, CommandEvent},
+    ShellExt,
+};
 
 /// Max accumulated stdout/stderr size: 10 MB.
 const MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
 
-/// Sidecar process timeout.
-const SIDECAR_TIMEOUT: Duration = Duration::from_secs(30);
+/// Query timeout. Interactive queries must fail fast.
+const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
+/// Maintenance timeout. Indexing a home directory can legitimately take minutes.
+const MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 /// Max chars of raw output shown in error messages to avoid information disclosure.
 const ERROR_PREVIEW_CHARS: usize = 200;
+
+#[derive(Default)]
+pub struct SearchProcessState {
+    next_id: AtomicU64,
+    active: Mutex<Option<(u64, CommandChild)>>,
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct SearchResponse {
@@ -19,6 +34,10 @@ pub struct SearchResponse {
     pub elapsed_ms: u64,
     pub total_results: u64,
     pub results: Vec<SearchResult>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -97,6 +116,8 @@ pub struct ContentIndexInfo {
 pub struct ScanPath {
     pub path: String,
     pub exists: bool,
+    #[serde(default)]
+    pub custom: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -123,6 +144,18 @@ fn parse_error_msg(err: &impl std::fmt::Display, raw_output: &str) -> String {
     format!("Failed to parse response: {} (preview: {})", err, preview)
 }
 
+fn parse_search_response(stdout: &str) -> Result<SearchResponse, String> {
+    let response =
+        serde_json::from_str::<SearchResponse>(stdout).map_err(|e| parse_error_msg(&e, stdout))?;
+    if response.mode == "error" {
+        return Err(response
+            .error
+            .or(response.hint)
+            .unwrap_or_else(|| "findr returned an unspecified error".into()));
+    }
+    Ok(response)
+}
+
 pub async fn search(
     app: &AppHandle,
     query: &str,
@@ -136,34 +169,34 @@ pub async fn search(
         "--json",
         "--limit",
         &limit_str,
+        "--no-sync",
     ];
     if no_semantic {
         args.push("--no-semantic");
     }
 
-    run_findr(app, &args, &[]).await.and_then(|stdout| {
-        serde_json::from_str::<SearchResponse>(&stdout)
-            .map_err(|e| parse_error_msg(&e, &stdout))
-    })
+    run_findr_with_timeout(app, &args, &[], QUERY_TIMEOUT, true)
+        .await
+        .and_then(|stdout| parse_search_response(&stdout))
 }
 
 pub async fn recent_files(app: &AppHandle, limit: usize) -> Result<SearchResponse, String> {
     let limit_str = limit.to_string();
-    let args = vec!["search", "", "--json", "--limit", &limit_str];
-    run_findr(app, &args, &[]).await.and_then(|stdout| {
-        serde_json::from_str::<SearchResponse>(&stdout)
-            .map_err(|e| parse_error_msg(&e, &stdout))
-    })
+    let args = vec!["search", "", "--json", "--limit", &limit_str, "--no-sync"];
+    run_findr_with_timeout(app, &args, &[], QUERY_TIMEOUT, true)
+        .await
+        .and_then(|stdout| parse_search_response(&stdout))
 }
 
 pub async fn track(app: &AppHandle, path: &str, action: &str) -> Result<(), String> {
-    run_findr(app, &["track", path, "--action", action], &[]).await.map(|_| ())
+    run_findr(app, &["track", path, "--action", action], &[])
+        .await
+        .map(|_| ())
 }
 
 pub async fn index_status(app: &AppHandle) -> Result<IndexStatus, String> {
     let stdout = run_findr(app, &["index", "status", "--json"], &[]).await?;
-    serde_json::from_str::<IndexStatus>(&stdout)
-        .map_err(|e| parse_error_msg(&e, &stdout))
+    serde_json::from_str::<IndexStatus>(&stdout).map_err(|e| parse_error_msg(&e, &stdout))
 }
 
 pub async fn version(app: &AppHandle) -> Result<String, String> {
@@ -173,12 +206,15 @@ pub async fn version(app: &AppHandle) -> Result<String, String> {
 
 pub async fn doctor(app: &AppHandle) -> Result<DoctorReport, String> {
     let stdout = run_findr(app, &["doctor", "--json"], &[]).await?;
-    serde_json::from_str::<DoctorReport>(&stdout)
-        .map_err(|e| parse_error_msg(&e, &stdout))
+    serde_json::from_str::<DoctorReport>(&stdout).map_err(|e| parse_error_msg(&e, &stdout))
 }
 
 pub async fn add_path(app: &AppHandle, path: &str) -> Result<String, String> {
     run_findr(app, &["index", "add-path", path], &[]).await
+}
+
+pub async fn remove_path(app: &AppHandle, path: &str) -> Result<String, String> {
+    run_findr(app, &["index", "remove-path", path], &[]).await
 }
 
 pub async fn rebuild(
@@ -203,7 +239,7 @@ pub async fn sync(app: &AppHandle) -> Result<String, String> {
 }
 
 pub async fn set_key(app: &AppHandle, key: &str) -> Result<String, String> {
-    run_findr(app, &["config", "set-key", key], &[]).await
+    run_findr(app, &["config", "set-key"], &[("OPENROUTER_API_KEY", key)]).await
 }
 
 pub async fn get_key_status(app: &AppHandle) -> Result<String, String> {
@@ -215,6 +251,29 @@ async fn run_findr(
     app: &AppHandle,
     args: &[&str],
     env_vars: &[(&str, &str)],
+) -> Result<String, String> {
+    run_findr_with_timeout(app, args, env_vars, MAINTENANCE_TIMEOUT, false).await
+}
+
+fn take_query_child(app: &AppHandle, query_id: u64) -> Option<CommandChild> {
+    let state = app.state::<SearchProcessState>();
+    let mut active = state.active.lock().unwrap_or_else(|e| e.into_inner());
+    if active
+        .as_ref()
+        .is_some_and(|(active_id, _)| *active_id == query_id)
+    {
+        active.take().map(|(_, child)| child)
+    } else {
+        None
+    }
+}
+
+async fn run_findr_with_timeout(
+    app: &AppHandle,
+    args: &[&str],
+    env_vars: &[(&str, &str)],
+    timeout: Duration,
+    cancel_previous_query: bool,
 ) -> Result<String, String> {
     let sidecar = app
         .shell()
@@ -230,12 +289,29 @@ async fn run_findr(
         .spawn()
         .map_err(|e| format!("sidecar spawn failed: {}", e))?;
 
+    let mut local_child = None;
+    let query_id = if cancel_previous_query {
+        let state = app.state::<SearchProcessState>();
+        let id = state.next_id.fetch_add(1, Ordering::Relaxed);
+        let previous = {
+            let mut active = state.active.lock().unwrap_or_else(|e| e.into_inner());
+            active.replace((id, child))
+        };
+        if let Some((_, previous_child)) = previous {
+            let _ = previous_child.kill();
+        }
+        Some(id)
+    } else {
+        local_child = Some(child);
+        None
+    };
+
     let mut stdout = String::new();
     let mut stderr = String::new();
     let mut exit_code: Option<i32> = None;
     let mut output_exceeded = false;
 
-    let recv_result = tokio::time::timeout(SIDECAR_TIMEOUT, async {
+    let recv_result = tokio::time::timeout(timeout, async {
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) if !output_exceeded => {
@@ -263,11 +339,17 @@ async fn run_findr(
 
     if recv_result.is_err() {
         // Timeout: kill the hung sidecar process
-        let _ = child.kill();
-        return Err(format!(
-            "findr timed out after {}s",
-            SIDECAR_TIMEOUT.as_secs()
-        ));
+        let child = query_id
+            .and_then(|id| take_query_child(app, id))
+            .or_else(|| local_child.take());
+        if let Some(child) = child {
+            let _ = child.kill();
+        }
+        return Err(format!("findr timed out after {}s", timeout.as_secs()));
+    }
+
+    if let Some(id) = query_id {
+        drop(take_query_child(app, id));
     }
 
     if output_exceeded {
@@ -357,6 +439,21 @@ mod tests {
         let preview_end = msg.rfind(')').unwrap();
         let preview = &msg[preview_start..preview_end];
         assert_eq!(preview.len(), ERROR_PREVIEW_CHARS);
+    }
+
+    #[test]
+    fn search_error_envelope_is_rejected() {
+        let json = r#"{
+            "query":"x",
+            "mode":"error",
+            "elapsed_ms":0,
+            "total_results":0,
+            "results":[],
+            "error":"index corrupt",
+            "hint":"rebuild"
+        }"#;
+        let err = parse_search_response(json).unwrap_err();
+        assert!(err.contains("index corrupt"));
     }
 
     #[test]
@@ -591,6 +688,8 @@ mod tests {
                 is_dir: false,
                 interactions: 3,
             }],
+            error: None,
+            hint: None,
         };
         let json = serde_json::to_string(&original).unwrap();
         let restored: SearchResponse = serde_json::from_str(&json).unwrap();

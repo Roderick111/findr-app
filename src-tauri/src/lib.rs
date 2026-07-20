@@ -47,9 +47,6 @@ pub fn run() {
 fn base_builder() -> tauri::Builder<tauri::Wry> {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_process::init());
@@ -87,6 +84,8 @@ fn base_builder() -> tauri::Builder<tauri::Wry> {
 fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
     builder
         .manage(background::SyncLock::default())
+        .manage(findr_client::SearchProcessState::default())
+        .manage(commands::AuthorizedPaths::default())
         .manage(license::ValidationCacheState::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -192,6 +191,10 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
         .invoke_handler(tauri::generate_handler![
             commands::search,
             commands::get_recent_files,
+            commands::read_preview_text,
+            commands::open_result,
+            commands::reveal_result,
+            commands::copy_text,
             commands::track_interaction,
             commands::get_index_status,
             commands::get_findr_version,
@@ -276,7 +279,7 @@ fn toggle_overlay<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
             panel.hide();
         } else {
             panel.show();
-        panel.make_key_window();
+            panel.make_key_window();
         }
     }
 }

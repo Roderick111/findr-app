@@ -220,18 +220,20 @@ function ScanPathsSection({
               {sp.path}
               {!sp.exists && " (missing)"}
             </span>
-            <button
-              onClick={() => handleRemovePath(sp.path)}
-              disabled={removing === sp.path}
-              className="transition-colors shrink-0"
-              style={{ color: "var(--text-tertiary)" }}
-            >
-              {removing === sp.path ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <X size={14} />
-              )}
-            </button>
+            {sp.custom && (
+              <button
+                onClick={() => handleRemovePath(sp.path)}
+                disabled={removing === sp.path}
+                className="transition-colors shrink-0"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                {removing === sp.path ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <X size={14} />
+                )}
+              </button>
+            )}
           </div>
         ))}
       </div>

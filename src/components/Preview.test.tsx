@@ -1,22 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { open } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 import { Preview } from "./Preview";
 import type { SearchResult } from "../types";
 
-const mockOpen = vi.mocked(open);
-
-function makeFileHandle(content: string) {
-  const encoded = new TextEncoder().encode(content);
-  return {
-    read: vi.fn((buf: Uint8Array) => {
-      const len = Math.min(encoded.length, buf.length);
-      buf.set(encoded.slice(0, len));
-      return Promise.resolve(len);
-    }),
-    close: vi.fn(() => Promise.resolve()),
-  };
-}
+const mockInvoke = vi.mocked(invoke);
 
 function makeResult(overrides: Partial<SearchResult> = {}): SearchResult {
   return {
@@ -37,8 +25,7 @@ function makeResult(overrides: Partial<SearchResult> = {}): SearchResult {
 describe("Preview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: open returns a handle that never resolves read (loading state)
-    mockOpen.mockReturnValue(new Promise(() => {}) as any);
+    mockInvoke.mockReturnValue(new Promise(() => {}));
   });
 
   it("shows placeholder when result is null", () => {
@@ -102,7 +89,7 @@ describe("Preview", () => {
   });
 
   it("shows text content after loading", async () => {
-    mockOpen.mockResolvedValue(makeFileHandle("Hello, world!") as any);
+    mockInvoke.mockResolvedValue({ text: "Hello, world!", truncated: false });
 
     render(<Preview result={makeResult({ file_type: "txt" })} />);
 
@@ -112,7 +99,7 @@ describe("Preview", () => {
   });
 
   it("shows error when file open fails", async () => {
-    mockOpen.mockRejectedValue(new Error("Permission denied"));
+    mockInvoke.mockRejectedValue(new Error("Permission denied"));
 
     render(<Preview result={makeResult({ file_type: "txt" })} />);
 

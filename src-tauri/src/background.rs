@@ -4,7 +4,6 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 const SYNC_INTERVAL: Duration = Duration::from_secs(300);
-const SIDECAR_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_BACKOFF: Duration = Duration::from_secs(600); // 10 minutes
 const SHUTDOWN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -41,41 +40,38 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
     std::thread::spawn(move || {
         let rt = tauri::async_runtime::handle();
 
-        // Initial sync with timeout — don't block indefinitely on first launch
+        // Client owns process timeout and kill semantics. Maintenance jobs have
+        // a long deadline because a home-directory rebuild is not bounded to 30s.
         if !shutdown_clone.load(Ordering::SeqCst) {
-            match rt.block_on(async {
-                tokio::time::timeout(
-                    SIDECAR_TIMEOUT,
-                    crate::findr_client::index_status(&app),
-                )
-                .await
-            }) {
-                Ok(Ok(status)) => {
+            match rt.block_on(crate::findr_client::index_status(&app)) {
+                Ok(status) => {
                     if status.files_indexed.unwrap_or(0) == 0 {
                         let _ = app.emit("index-progress", "Starting initial sync...");
-                        match rt.block_on(async {
-                            tokio::time::timeout(SIDECAR_TIMEOUT, crate::findr_client::sync(&app))
-                                .await
-                        }) {
-                            Ok(Ok(_)) => {
+                        let sync_lock = app.try_state::<SyncLock>();
+                        let acquired = sync_lock.as_ref().is_none_or(|lock| lock.try_acquire());
+                        let result = if acquired {
+                            let result = rt.block_on(crate::findr_client::sync(&app));
+                            if let Some(lock) = sync_lock.as_ref() {
+                                lock.release();
+                            }
+                            result
+                        } else {
+                            Err("sync already in progress".to_string())
+                        };
+                        match result {
+                            Ok(_) => {
                                 let _ = app.emit("index-progress", "Initial sync complete");
                             }
-                            Ok(Err(e)) => {
+                            Err(e) => {
                                 eprintln!("[daemon] initial sync failed: {e}");
-                                let _ = app.emit("index-progress", format!("Initial sync error: {e}"));
-                            }
-                            Err(_) => {
-                                eprintln!("[daemon] initial sync timed out after {:?}", SIDECAR_TIMEOUT);
-                                let _ = app.emit("index-progress", "Initial sync timed out");
+                                let _ =
+                                    app.emit("index-progress", format!("Initial sync error: {e}"));
                             }
                         }
                     }
                 }
-                Ok(Err(e)) => {
+                Err(e) => {
                     eprintln!("[daemon] index status check failed: {e}");
-                }
-                Err(_) => {
-                    eprintln!("[daemon] index status timed out after {:?}", SIDECAR_TIMEOUT);
                 }
             }
         }
@@ -122,9 +118,7 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
             }
 
             let _ = app.emit("index-sync", "syncing");
-            let result = rt.block_on(async {
-                tokio::time::timeout(SIDECAR_TIMEOUT, crate::findr_client::sync(&app)).await
-            });
+            let result = rt.block_on(crate::findr_client::sync(&app));
 
             // Release sync lock
             if let Some(ref lock) = sync_lock {
@@ -132,25 +126,17 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
             }
 
             match result {
-                Ok(Ok(_)) => {
+                Ok(_) => {
                     consecutive_failures = 0;
                     let _ = app.emit("index-sync", "complete");
                 }
-                Ok(Err(e)) => {
+                Err(e) => {
                     consecutive_failures = consecutive_failures.saturating_add(1);
                     eprintln!(
                         "[daemon] sync failed (attempt {}): {e}",
                         consecutive_failures
                     );
                     let _ = app.emit("index-sync", format!("error: {e}"));
-                }
-                Err(_) => {
-                    consecutive_failures = consecutive_failures.saturating_add(1);
-                    eprintln!(
-                        "[daemon] sync timed out after {:?} (attempt {})",
-                        SIDECAR_TIMEOUT, consecutive_failures
-                    );
-                    let _ = app.emit("index-sync", "error: sync timed out");
                 }
             }
         }

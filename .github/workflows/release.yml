@@ -52,6 +52,14 @@ jobs:
       - name: Install frontend deps
         run: bun install
 
+      - name: Verify frontend
+        run: |
+          bun run test
+          bun run build
+
+      - name: Verify Tauri Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
