@@ -85,12 +85,27 @@ pub struct DoctorReport {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DatabaseInfo {
     pub ok: bool,
+    #[serde(default)]
+    pub health: DatabaseHealth,
+    #[serde(default)]
+    pub error: Option<String>,
     pub path: String,
     pub size_bytes: u64,
     pub files_indexed: u64,
     pub content_indexed: u64,
     pub last_updated: Option<String>,
     pub last_full_reindex: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseHealth {
+    Healthy,
+    Missing,
+    Corrupt,
+    Unavailable,
+    #[default]
+    Unknown,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -154,6 +169,20 @@ fn parse_search_response(stdout: &str) -> Result<SearchResponse, String> {
             .unwrap_or_else(|| "findr returned an unspecified error".into()));
     }
     Ok(response)
+}
+
+pub fn is_corrupt_index_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    [
+        "database disk image is malformed",
+        "index corrupt",
+        "file is not a database",
+        "malformed database schema",
+        "database corruption",
+        "database corrupt",
+    ]
+    .iter()
+    .any(|needle| error.contains(needle))
 }
 
 pub async fn search(
@@ -457,6 +486,18 @@ mod tests {
     }
 
     #[test]
+    fn recognizes_corrupt_index_errors() {
+        assert!(is_corrupt_index_error(
+            "findr exited 1 (stderr: database disk image is malformed)"
+        ));
+        assert!(is_corrupt_index_error("Index corrupt: malformed database"));
+        assert!(is_corrupt_index_error("file is not a database"));
+        assert!(is_corrupt_index_error("malformed database schema"));
+        assert!(!is_corrupt_index_error("permission denied"));
+        assert!(!is_corrupt_index_error("database is locked"));
+    }
+
+    #[test]
     fn parse_error_msg_empty_output() {
         let msg = parse_error_msg(&"err", "");
         assert!(msg.contains("err"));
@@ -558,6 +599,8 @@ mod tests {
             "version": "1.2.3",
             "database": {
                 "ok": true,
+                "health": "healthy",
+                "error": null,
                 "path": "/home/.findr/db",
                 "size_bytes": 5000000,
                 "files_indexed": 1234,
@@ -596,6 +639,8 @@ mod tests {
         let report: DoctorReport = serde_json::from_str(json).unwrap();
         assert_eq!(report.version, "1.2.3");
         assert!(report.database.ok);
+        assert_eq!(report.database.health, DatabaseHealth::Healthy);
+        assert!(report.database.error.is_none());
         assert_eq!(report.database.files_indexed, 1234);
         assert!(report.ocr.binary_found);
         assert!(report.hnsw.index_exists);
@@ -632,6 +677,7 @@ mod tests {
         assert!(report.index_location.is_none());
         assert!(report.recent_errors.is_none());
         assert!(report.permissions.inaccessible.is_empty());
+        assert_eq!(report.database.health, DatabaseHealth::Unknown);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::background::SyncLock;
+use crate::background::{IndexActivity, IndexActivityState, SyncLock};
 use crate::findr_client::{self, DoctorReport, IndexStatus, SearchResponse};
 use crate::license::{self, LicenseState, LicenseStatus, ValidationCacheState};
 use serde::Serialize;
@@ -165,6 +165,33 @@ pub async fn get_index_status(app: AppHandle) -> Result<IndexStatus, String> {
 }
 
 #[tauri::command]
+pub fn get_index_activity(app: AppHandle) -> IndexActivity {
+    app.state::<IndexActivityState>().snapshot()
+}
+
+fn parse_macos_major_version(version: &str) -> Option<u32> {
+    version.trim().split('.').next()?.parse().ok()
+}
+
+#[tauri::command]
+pub fn uses_legacy_opaque_overlay() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("/usr/bin/sw_vers")
+            .args(["-productVersion"])
+            .output();
+        output
+            .ok()
+            .filter(|result| result.status.success())
+            .and_then(|result| String::from_utf8(result.stdout).ok())
+            .and_then(|version| parse_macos_major_version(&version))
+            .is_none_or(|major| major < 14)
+    }
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
+#[tauri::command]
 pub async fn get_findr_version(app: AppHandle) -> Result<String, String> {
     findr_client::version(&app).await
 }
@@ -210,11 +237,22 @@ pub async fn run_reindex(app: AppHandle) -> Result<String, String> {
             return Err("sync already in progress".into());
         }
     }
+    let activity = app.state::<IndexActivityState>();
+    activity.update(&app, "indexing", "Rebuilding search index…", true);
     let result = findr_client::rebuild(&app, None, None).await;
     if let Some(ref lock) = lock {
         lock.release();
     }
-    result
+    match result {
+        Ok(output) => {
+            activity.update(&app, "ready", "Search index rebuilt.", false);
+            Ok(output)
+        }
+        Err(error) => {
+            activity.update(&app, "error", "Search rebuild failed.", false);
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -226,11 +264,33 @@ pub async fn run_sync(app: AppHandle) -> Result<String, String> {
             return Err("sync already in progress".into());
         }
     }
-    let result = findr_client::sync(&app).await;
+    let activity = app.state::<IndexActivityState>();
+    activity.update(
+        &app,
+        "indexing",
+        "Preparing search — finding your files…",
+        true,
+    );
+    let result = match findr_client::sync(&app).await {
+        Err(error) if findr_client::is_corrupt_index_error(&error) => {
+            activity.update(&app, "indexing", "Repairing search index…", true);
+            findr_client::rebuild(&app, None, None).await
+        }
+        result => result,
+    };
     if let Some(ref lock) = lock {
         lock.release();
     }
-    result
+    match result {
+        Ok(output) => {
+            activity.update(&app, "ready", "Search is ready.", false);
+            Ok(output)
+        }
+        Err(error) => {
+            activity.update(&app, "error", "Search setup failed.", false);
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -366,4 +426,16 @@ pub fn get_trial_days_remaining(app: AppHandle) -> Result<i64, String> {
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
     Ok(license::trial_days_remaining(&state))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_macos_major_version;
+
+    #[test]
+    fn parses_macos_major_version() {
+        assert_eq!(parse_macos_major_version("12.7.6\n"), Some(12));
+        assert_eq!(parse_macos_major_version("15.5"), Some(15));
+        assert_eq!(parse_macos_major_version("unknown"), None);
+    }
 }

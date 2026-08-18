@@ -1,5 +1,7 @@
+use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -10,6 +12,42 @@ const SHUTDOWN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 /// Shared lock to prevent daemon and user-triggered sync from racing.
 /// Stored in Tauri managed state.
 pub struct SyncLock(pub AtomicBool);
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IndexActivity {
+    pub phase: String,
+    pub message: String,
+    pub active: bool,
+}
+
+#[derive(Debug)]
+pub struct IndexActivityState(Mutex<IndexActivity>);
+
+impl Default for IndexActivityState {
+    fn default() -> Self {
+        Self(Mutex::new(IndexActivity {
+            phase: "checking".into(),
+            message: "Checking search index…".into(),
+            active: true,
+        }))
+    }
+}
+
+impl IndexActivityState {
+    pub fn snapshot(&self) -> IndexActivity {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn update(&self, app: &AppHandle, phase: &str, message: &str, active: bool) {
+        let activity = IndexActivity {
+            phase: phase.into(),
+            message: message.into(),
+            active,
+        };
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = activity.clone();
+        let _ = app.emit("index-activity", activity);
+    }
+}
 
 impl Default for SyncLock {
     fn default() -> Self {
@@ -31,6 +69,35 @@ impl SyncLock {
     }
 }
 
+fn rebuild_index(app: &AppHandle) -> Result<String, String> {
+    let lock = app.try_state::<SyncLock>();
+    if let Some(ref lock) = lock {
+        if !lock.try_acquire() {
+            return Err("sync already in progress".into());
+        }
+    }
+    let result = tauri::async_runtime::block_on(crate::findr_client::rebuild(app, None, None));
+    if let Some(ref lock) = lock {
+        lock.release();
+    }
+    result
+}
+
+fn repair_corrupt_index(app: &AppHandle, activity: &IndexActivityState) -> bool {
+    activity.update(app, "indexing", "Repairing search index…", true);
+    match rebuild_index(app) {
+        Ok(_) => {
+            activity.update(app, "ready", "Search is ready.", false);
+            true
+        }
+        Err(error) => {
+            eprintln!("[daemon] index repair failed: {error}");
+            activity.update(app, "error", "Search repair failed.", false);
+            false
+        }
+    }
+}
+
 /// Spawn the background index daemon. Returns a shutdown flag that can be
 /// set to `true` to cleanly stop the daemon thread.
 pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
@@ -43,10 +110,44 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
         // Client owns process timeout and kill semantics. Maintenance jobs have
         // a long deadline because a home-directory rebuild is not bounded to 30s.
         if !shutdown_clone.load(Ordering::SeqCst) {
-            match rt.block_on(crate::findr_client::index_status(&app)) {
-                Ok(status) => {
-                    if status.files_indexed.unwrap_or(0) == 0 {
-                        let _ = app.emit("index-progress", "Starting initial sync...");
+            let activity = app.state::<IndexActivityState>();
+            match rt.block_on(crate::findr_client::doctor(&app)) {
+                Ok(report)
+                    if report.database.health == crate::findr_client::DatabaseHealth::Corrupt =>
+                {
+                    repair_corrupt_index(&app, &activity);
+                }
+                Ok(report)
+                    if report.database.health
+                        == crate::findr_client::DatabaseHealth::Unavailable =>
+                {
+                    eprintln!(
+                        "[daemon] database unavailable: {}",
+                        report.database.error.as_deref().unwrap_or("unknown error")
+                    );
+                    activity.update(
+                        &app,
+                        "error",
+                        "Search index is unavailable. Check folder permissions.",
+                        false,
+                    );
+                }
+                Ok(report) if report.scan_paths.is_empty() => {
+                    activity.update(
+                        &app,
+                        "needs_setup",
+                        "Choose a folder to start searching.",
+                        false,
+                    );
+                }
+                Ok(_) => match rt.block_on(crate::findr_client::index_status(&app)) {
+                    Ok(status) if status.files_indexed.unwrap_or(0) == 0 => {
+                        activity.update(
+                            &app,
+                            "indexing",
+                            "Preparing search — finding your files…",
+                            true,
+                        );
                         let sync_lock = app.try_state::<SyncLock>();
                         let acquired = sync_lock.as_ref().is_none_or(|lock| lock.try_acquire());
                         let result = if acquired {
@@ -60,18 +161,36 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
                         };
                         match result {
                             Ok(_) => {
-                                let _ = app.emit("index-progress", "Initial sync complete");
+                                activity.update(&app, "ready", "Search is ready.", false);
                             }
                             Err(e) => {
                                 eprintln!("[daemon] initial sync failed: {e}");
-                                let _ =
-                                    app.emit("index-progress", format!("Initial sync error: {e}"));
+                                if crate::findr_client::is_corrupt_index_error(&e) {
+                                    repair_corrupt_index(&app, &activity);
+                                } else {
+                                    activity.update(
+                                        &app,
+                                        "error",
+                                        &format!("Search setup failed: {e}"),
+                                        false,
+                                    );
+                                }
                             }
                         }
                     }
-                }
+                    Ok(_) => activity.update(&app, "ready", "Search is ready.", false),
+                    Err(e) => {
+                        eprintln!("[daemon] index status check failed: {e}");
+                        if crate::findr_client::is_corrupt_index_error(&e) {
+                            repair_corrupt_index(&app, &activity);
+                        } else {
+                            activity.update(&app, "error", "Couldn’t check search status.", false);
+                        }
+                    }
+                },
                 Err(e) => {
                     eprintln!("[daemon] index status check failed: {e}");
+                    activity.update(&app, "error", "Couldn’t check search status.", false);
                 }
             }
         }
@@ -117,7 +236,8 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
                 continue;
             }
 
-            let _ = app.emit("index-sync", "syncing");
+            let activity = app.state::<IndexActivityState>();
+            activity.update(&app, "syncing", "Updating search…", true);
             let result = rt.block_on(crate::findr_client::sync(&app));
 
             // Release sync lock
@@ -128,7 +248,15 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
             match result {
                 Ok(_) => {
                     consecutive_failures = 0;
-                    let _ = app.emit("index-sync", "complete");
+                    activity.update(&app, "ready", "Search updated.", false);
+                }
+                Err(e) if crate::findr_client::is_corrupt_index_error(&e) => {
+                    eprintln!("[daemon] corrupt index detected: {e}");
+                    if repair_corrupt_index(&app, &activity) {
+                        consecutive_failures = 0;
+                    } else {
+                        consecutive_failures = consecutive_failures.saturating_add(1);
+                    }
                 }
                 Err(e) => {
                     consecutive_failures = consecutive_failures.saturating_add(1);
@@ -136,7 +264,7 @@ pub fn spawn_index_daemon(app: AppHandle) -> Arc<AtomicBool> {
                         "[daemon] sync failed (attempt {}): {e}",
                         consecutive_failures
                     );
-                    let _ = app.emit("index-sync", format!("error: {e}"));
+                    activity.update(&app, "error", "Search update failed.", false);
                 }
             }
         }
@@ -209,5 +337,13 @@ mod tests {
     #[test]
     fn max_backoff_exceeds_sync_interval() {
         assert!(MAX_BACKOFF > SYNC_INTERVAL);
+    }
+
+    #[test]
+    fn index_activity_starts_in_checking_state() {
+        let activity = IndexActivityState::default().snapshot();
+        assert_eq!(activity.phase, "checking");
+        assert_eq!(activity.message, "Checking search index…");
+        assert!(activity.active);
     }
 }

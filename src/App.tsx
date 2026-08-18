@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { File, Folder, FileText, FileImage, Code, Settings } from "lucide-react";
 import { useDebounced } from "./hooks/useDebounced";
 import { Preview } from "./components/Preview";
 import { ActionsPanel } from "./components/ActionsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
-import type { DoctorReport, SearchResponse, SearchResult } from "./types";
+import type { DoctorReport, IndexActivity, SearchResponse, SearchResult } from "./types";
 
 const LIMIT = 30;
 const RECENT_LIMIT = 20;
@@ -14,6 +15,7 @@ const DEBOUNCE_MS = 200;
 
 const isMac = navigator.userAgent.includes("Mac");
 const modKey = isMac ? "⌘" : "Ctrl+";
+const hotkey = isMac ? "⌘⇧F" : "Ctrl+Shift+F";
 
 function iconFor(r: SearchResult) {
   if (r.is_dir) return <Folder size={16} style={{ color: "var(--icon-folder)" }} className="shrink-0" />;
@@ -40,10 +42,20 @@ export default function App() {
   const [selected, setSelected] = useState(0);
   const [showActions, setShowActions] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
-  const [indexingProgress, setIndexingProgress] = useState<string | null>(null);
+  const [indexActivity, setIndexActivity] = useState<IndexActivity | null>(null);
   const requestIdRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const unlisten = listen<IndexActivity>("index-activity", (event) => {
+      setIndexActivity(event.payload);
+    });
+    invoke<IndexActivity>("get_index_activity").then(setIndexActivity).catch(() => {});
+    return () => {
+      unlisten.then((cleanup) => cleanup());
+    };
+  }, []);
 
   useEffect(() => {
     invoke<DoctorReport>("get_doctor_report")
@@ -54,18 +66,19 @@ export default function App() {
   }, []);
 
   const startIndexing = useCallback(async () => {
-    setIndexingProgress("Adding home folder...");
+    setError(null);
+    setIndexActivity({
+      phase: "indexing",
+      message: "Preparing search — finding your files…",
+      active: true,
+    });
     try {
       const home = await invoke<string>("get_home_dir");
       await invoke("add_scan_path", { path: home });
-      setIndexingProgress("Indexing your files...");
       await invoke("run_sync");
       setNeedsOnboarding(false);
-      setIndexingProgress(null);
     } catch (e) {
-      setIndexingProgress(null);
       setError(`Setup failed: ${e}`);
-      setNeedsOnboarding(false);
     }
   }, []);
 
@@ -316,20 +329,21 @@ export default function App() {
           <div ref={listRef} className="flex-1 overflow-y-auto">
             {needsOnboarding ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center">
-                {indexingProgress ? (
+                {indexActivity?.active ? (
                   <>
-                    <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }} />
-                    <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{indexingProgress}</span>
+                    <span className="text-sm" style={{ color: "var(--text-secondary)" }}>Preparing search…</span>
                   </>
                 ) : (
                   <>
-                    <span className="text-sm" style={{ color: "var(--text-secondary)" }}>No folders indexed yet</span>
+                    <span className="text-sm" style={{ color: indexActivity?.phase === "error" ? "var(--error)" : "var(--text-secondary)" }}>
+                      {indexActivity?.phase === "error" ? "Search setup needs another try" : "Choose where findr should search"}
+                    </span>
                     <button
                       onClick={startIndexing}
                       className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                       style={{ background: "var(--accent)", color: "var(--accent-text)" }}
                     >
-                      Index Home Folder
+                      {indexActivity?.phase === "error" ? "Try Again" : "Search my Home folder"}
                     </button>
                     <button
                       onClick={openSettings}
@@ -395,7 +409,7 @@ export default function App() {
         </div>
       </div>
 
-      <div className="px-4 py-1.5 text-xs flex justify-between items-center" style={{ borderTop: "1px solid var(--border)" }}>
+      <div className="px-4 py-1.5 text-xs grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-3 items-center" style={{ borderTop: "1px solid var(--border)" }}>
         <div className="flex items-center gap-2">
           {statusLine}
           <button
@@ -407,7 +421,18 @@ export default function App() {
             <Settings size={13} />
           </button>
         </div>
-        <span style={{ color: "var(--text-secondary)" }}>
+        <div className="flex min-w-0 items-center justify-center gap-2" style={{ color: "var(--text-secondary)" }}>
+          {indexActivity?.active && (
+            <>
+              <span className="truncate max-w-[145px]">{indexActivity.message}</span>
+              <div className="index-progress-track" role="progressbar" aria-label={indexActivity.message}>
+                <div className="index-progress-indeterminate" />
+              </div>
+            </>
+          )}
+          <span className="whitespace-nowrap"><Kbd>{hotkey}</Kbd> open anytime</span>
+        </div>
+        <span className="justify-self-end whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
           <Kbd>↵</Kbd> open · <Kbd>{modKey}K</Kbd> actions
         </span>
       </div>

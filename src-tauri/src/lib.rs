@@ -46,6 +46,9 @@ pub fn run() {
 
 fn base_builder() -> tauri::Builder<tauri::Wry> {
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            show_overlay(app);
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -72,10 +75,13 @@ fn base_builder() -> tauri::Builder<tauri::Wry> {
                 })
                 .build(),
         );
-        builder = builder.plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ));
+        let mut autostart = tauri_plugin_autostart::Builder::new().arg("--background");
+        #[cfg(target_os = "macos")]
+        {
+            autostart =
+                autostart.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+        }
+        builder = builder.plugin(autostart.build());
     }
 
     builder
@@ -84,6 +90,7 @@ fn base_builder() -> tauri::Builder<tauri::Wry> {
 fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
     builder
         .manage(background::SyncLock::default())
+        .manage(background::IndexActivityState::default())
         .manage(findr_client::SearchProcessState::default())
         .manage(commands::AuthorizedPaths::default())
         .manage(license::ValidationCacheState::default())
@@ -93,6 +100,10 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
 
             #[cfg(target_os = "macos")]
             setup_macos_panel(app);
+
+            if !std::env::args().any(|arg| arg == "--background") {
+                show_overlay(app.handle());
+            }
 
             #[cfg(not(target_os = "macos"))]
             if let Some(window) = app.get_webview_window("main") {
@@ -197,6 +208,8 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
             commands::copy_text,
             commands::track_interaction,
             commands::get_index_status,
+            commands::get_index_activity,
+            commands::uses_legacy_opaque_overlay,
             commands::get_findr_version,
             commands::hide_overlay,
             commands::get_license_state,
@@ -218,8 +231,14 @@ fn finish_builder(builder: tauri::Builder<tauri::Wry>) {
             commands::get_theme,
             commands::set_theme,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = event {
+                show_overlay(app);
+            }
+        });
 }
 
 // -- macOS: NSPanel overlay (works over fullscreen apps) --

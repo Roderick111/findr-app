@@ -21,6 +21,12 @@ export interface SearchResponse {
   hint?: string;
 }
 
+export interface IndexActivity {
+  phase: "checking" | "needs_setup" | "indexing" | "syncing" | "ready" | "error";
+  message: string;
+  active: boolean;
+}
+
 export type LicenseStatus =
   | "active"
   | "trial"
@@ -52,6 +58,8 @@ export interface DoctorReport {
 
 export interface DatabaseInfo {
   ok: boolean;
+  health: "healthy" | "missing" | "corrupt" | "unavailable" | "unknown";
+  error: string | null;
   path: string;
   size_bytes: number;
   files_indexed: number;

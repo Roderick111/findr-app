@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DMG_PATH="${1:-target/release/bundle/dmg/findr_0.1.0_aarch64.dmg}"
+DMG_PATH="${1:-target/release/bundle/dmg/findr_0.1.2_aarch64.dmg}"
 TEMP_DMG="$(mktemp -t fixdmg).dmg"
 
 echo "Converting to writable DMG..."
